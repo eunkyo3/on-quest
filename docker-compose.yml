@@ -1,0 +1,92 @@
+services:
+  postgres:
+    image: postgres:16-alpine
+    container_name: on-quest-postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-onquest}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-onquest_pw}
+      POSTGRES_DB: ${POSTGRES_DB:-onquest}
+    ports:
+      - "${POSTGRES_PORT:-5432}:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    networks:
+      - onquest-net
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-onquest} -d ${POSTGRES_DB:-onquest}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  n8n:
+    image: n8nio/n8n:latest
+    container_name: on-quest-n8n
+    restart: unless-stopped
+    environment:
+      - N8N_HOST=${N8N_HOST:-localhost}
+      - N8N_PORT=5678
+      - N8N_PROTOCOL=http
+      - WEBHOOK_URL=${N8N_WEBHOOK_URL:-http://localhost:5678/}
+      - GENERIC_TIMEZONE=${TZ:-Asia/Seoul}
+      - N8N_BASIC_AUTH_ACTIVE=true
+      - N8N_BASIC_AUTH_USER=${N8N_BASIC_AUTH_USER:-admin}
+      - N8N_BASIC_AUTH_PASSWORD=${N8N_BASIC_AUTH_PASSWORD:-change_me}
+      # Shared secret used to verify payload signature from NestJS
+      - ONQUEST_WEBHOOK_SECRET=${N8N_WEBHOOK_SECRET:-super_secret_change_me}
+    ports:
+      - "5678:5678"
+    volumes:
+      - n8n_data:/home/node/.n8n
+    networks:
+      - onquest-net
+
+  backend:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    container_name: on-quest-backend
+    restart: unless-stopped
+    depends_on:
+      postgres:
+        condition: service_healthy
+    environment:
+      - NODE_ENV=production
+      - PORT=3000
+      - DB_HOST=postgres
+      - DB_PORT=5432
+      - DB_USER=${POSTGRES_USER:-onquest}
+      - DB_PASSWORD=${POSTGRES_PASSWORD:-onquest_pw}
+      - DB_NAME=${POSTGRES_DB:-onquest}
+      # Internal container hostname; 3초 이내 실시간 알림 목표
+      - N8N_WEBHOOK_URL=http://n8n:5678/webhook/onquest
+      - N8N_WEBHOOK_SECRET=${N8N_WEBHOOK_SECRET:-super_secret_change_me}
+      - CORS_ORIGIN=${CORS_ORIGIN:-http://localhost:8080}
+    ports:
+      - "3000:3000"
+    networks:
+      - onquest-net
+
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+      args:
+        # 빈 값 → 프론트엔드는 동일 origin(/api) 로 요청 → Nginx가 backend 로 프록시
+        VITE_API_BASE_URL: ${VITE_API_BASE_URL:-}
+    container_name: on-quest-frontend
+    restart: unless-stopped
+    depends_on:
+      - backend
+    ports:
+      - "8080:80"
+    networks:
+      - onquest-net
+
+volumes:
+  postgres_data:
+  n8n_data:
+
+networks:
+  onquest-net:
+    driver: bridge

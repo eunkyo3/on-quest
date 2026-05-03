@@ -1,0 +1,110 @@
+{
+  "name": "OnQuest Slack Notifier",
+  "nodes": [
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "onquest",
+        "responseMode": "responseNode",
+        "options": {}
+      },
+      "id": "webhook-in",
+      "name": "Webhook",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2,
+      "position": [240, 300],
+      "webhookId": "onquest"
+    },
+    {
+      "parameters": {
+        "jsCode": "// HMAC-SHA256 서명 검증 — NestJS 와 공유 비밀키 사용\nconst crypto = require('crypto');\nconst secret = $env.ONQUEST_WEBHOOK_SECRET;\nif (!secret) throw new Error('ONQUEST_WEBHOOK_SECRET is not configured');\n\nconst headers = $input.first().headers;\nconst signature = headers['x-onquest-signature'];\nconst timestamp = headers['x-onquest-timestamp'];\nif (!signature || !timestamp) throw new Error('Missing signature headers');\n\n// 재전송 방어 — 5분 윈도우\nconst driftMs = Math.abs(Date.now() - new Date(timestamp).getTime());\nif (driftMs > 5 * 60 * 1000) throw new Error('Timestamp out of window');\n\nconst body = JSON.stringify($input.first().json);\nconst expected = crypto.createHmac('sha256', secret).update(body).digest('hex');\nif (signature !== expected) throw new Error('Invalid signature');\n\nreturn $input.all();\n"
+      },
+      "id": "verify-hmac",
+      "name": "Verify HMAC",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [460, 300]
+    },
+    {
+      "parameters": {
+        "dataType": "string",
+        "value1": "={{ $json.event }}",
+        "rules": {
+          "rules": [
+            { "value2": "quest.created" },
+            { "value2": "quest.proof_uploaded" },
+            { "value2": "quest.reviewed" }
+          ]
+        }
+      },
+      "id": "switch-event",
+      "name": "Switch by Event",
+      "type": "n8n-nodes-base.switch",
+      "typeVersion": 2,
+      "position": [680, 300]
+    },
+    {
+      "parameters": {
+        "channel": "#onboarding",
+        "text": "=🎯 새 퀘스트가 생성되었습니다!\n• 제목: {{ $json.data.title }}\n• 마감: {{ $json.data.deadline }}\n• 담당: <@{{ $json.data.assigneeId }}>",
+        "otherOptions": {}
+      },
+      "id": "slack-created",
+      "name": "Slack — Created",
+      "type": "n8n-nodes-base.slack",
+      "typeVersion": 2.2,
+      "position": [920, 160],
+      "notes": "NestJS → n8n → Slack 전 구간 3초 이내 SLA 유지."
+    },
+    {
+      "parameters": {
+        "channel": "#onboarding",
+        "text": "=📎 증빙 자료가 제출되었습니다!\n• 퀘스트: {{ $json.data.title }}\n• 파일: {{ $json.data.fileName }}\n• 검토자: <@{{ $json.data.reviewerId }}>"
+      },
+      "id": "slack-proof",
+      "name": "Slack — Proof Uploaded",
+      "type": "n8n-nodes-base.slack",
+      "typeVersion": 2.2,
+      "position": [920, 300]
+    },
+    {
+      "parameters": {
+        "channel": "#onboarding",
+        "text": "={{ $json.data.status === 2 ? '✅ 퀘스트 완료 승인!' : '↩ 퀘스트 반려' }}\n• 제목: {{ $json.data.title }}\n• 피드백: {{ $json.data.feedback || '(없음)' }}\n• 대상자: <@{{ $json.data.assigneeId }}>"
+      },
+      "id": "slack-reviewed",
+      "name": "Slack — Reviewed",
+      "type": "n8n-nodes-base.slack",
+      "typeVersion": 2.2,
+      "position": [920, 440]
+    },
+    {
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={ \"ok\": true }"
+      },
+      "id": "respond",
+      "name": "Respond",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1,
+      "position": [1180, 300]
+    }
+  ],
+  "connections": {
+    "Webhook": { "main": [[{ "node": "Verify HMAC", "type": "main", "index": 0 }]] },
+    "Verify HMAC": { "main": [[{ "node": "Switch by Event", "type": "main", "index": 0 }]] },
+    "Switch by Event": {
+      "main": [
+        [{ "node": "Slack — Created", "type": "main", "index": 0 }],
+        [{ "node": "Slack — Proof Uploaded", "type": "main", "index": 0 }],
+        [{ "node": "Slack — Reviewed", "type": "main", "index": 0 }]
+      ]
+    },
+    "Slack — Created": { "main": [[{ "node": "Respond", "type": "main", "index": 0 }]] },
+    "Slack — Proof Uploaded": { "main": [[{ "node": "Respond", "type": "main", "index": 0 }]] },
+    "Slack — Reviewed": { "main": [[{ "node": "Respond", "type": "main", "index": 0 }]] }
+  },
+  "active": false,
+  "settings": {},
+  "tags": []
+}

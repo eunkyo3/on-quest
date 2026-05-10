@@ -3,6 +3,19 @@ import { ConfigService } from '@nestjs/config';
 import axios, { AxiosInstance } from 'axios';
 import * as crypto from 'crypto';
 
+/** n8n HMAC 검증과 동일한 문자열을 만들기 위한 정규 JSON 직렬화(키 정렬) */
+function stableStringify(value: unknown): string {
+  if (value === null || typeof value !== 'object') {
+    return JSON.stringify(value);
+  }
+  if (Array.isArray(value)) {
+    return `[${value.map(stableStringify).join(',')}]`;
+  }
+  const obj = value as Record<string, unknown>;
+  const keys = Object.keys(obj).sort();
+  return `{${keys.map((k) => `${JSON.stringify(k)}:${stableStringify(obj[k])}`).join(',')}}`;
+}
+
 /**
  * 웹훅 이벤트 타입.
  * n8n 쪽 Switch 노드가 이 값으로 분기해서 Slack 메시지 템플릿을 선택한다.
@@ -67,7 +80,7 @@ export class N8nService {
       timestamp: new Date().toISOString(),
       data,
     };
-    const body = JSON.stringify(payload);
+    const body = stableStringify(payload);
     const signature = this.sign(body);
 
     this.http

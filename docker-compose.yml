@@ -34,6 +34,12 @@ services:
       - N8N_BASIC_AUTH_PASSWORD=${N8N_BASIC_AUTH_PASSWORD:-change_me}
       # Shared secret used to verify payload signature from NestJS
       - ONQUEST_WEBHOOK_SECRET=${N8N_WEBHOOK_SECRET:-super_secret_change_me}
+      # Code 노드에서 HMAC 검증용 require('crypto') 허용 (기본 샌드박스에서 차단됨)
+      # https://docs.n8n.io/hosting/configuration/configuration-examples/modules-in-code-node/
+      - NODE_FUNCTION_ALLOW_BUILTIN=crypto
+      # n8n 2.x 기본: Code/표현식에서 $env 차단 → ONQUEST_WEBHOOK_SECRET 읽으려면 false 필요
+      # https://docs.n8n.io/hosting/configuration/environment-variables/security/
+      - N8N_BLOCK_ENV_ACCESS_IN_NODE=false
     ports:
       - "5678:5678"
     volumes:

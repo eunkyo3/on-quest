@@ -53,11 +53,7 @@ services:
     environment:
       - NODE_ENV=production
       - PORT=3000
-      - DB_HOST=postgres
-      - DB_PORT=5432
-      - DB_USER=${POSTGRES_USER:-onquest}
-      - DB_PASSWORD=${POSTGRES_PASSWORD:-onquest_pw}
-      - DB_NAME=${POSTGRES_DB:-onquest}
+      - DATABASE_URL=postgresql://${POSTGRES_USER:-onquest}:${POSTGRES_PASSWORD:-onquest_pw}@postgres:5432/${POSTGRES_DB:-onquest}
       # Internal container hostname; 3초 이내 실시간 알림 목표
       - N8N_WEBHOOK_URL=http://n8n:5678/webhook/onquest
       - N8N_WEBHOOK_SECRET=${N8N_WEBHOOK_SECRET:-super_secret_change_me}

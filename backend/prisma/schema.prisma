@@ -1,0 +1,30 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+/// 퀘스트 (기존 TypeORM QuestEntity 대응)
+/// status: 0 대기 / 1 진행중 / 2 완료 / 3 반려
+/// proofData: 증빙 BLOB — 목록 조회 시에는 select 에서 제외해 성능 유지
+model Quest {
+  id            String   @id @db.VarChar(8)
+  title         String   @db.VarChar(120)
+  description   String   @db.Text
+  deadline      DateTime @db.Timestamptz(6)
+  status        Int      @default(0) @db.SmallInt
+  feedback      String?  @db.Text
+  proofData     Bytes?
+  proofMimeType String?  @db.VarChar(255)
+  proofFileName String?  @db.VarChar(255)
+  assigneeId    String?  @db.VarChar(64)
+  reviewerId    String?  @db.VarChar(64)
+  createdAt     DateTime @default(now()) @db.Timestamptz(6)
+  updatedAt     DateTime @updatedAt @db.Timestamptz(6)
+
+  @@index([status])
+  @@map("quests")
+}

@@ -10,7 +10,7 @@
 ```
 ┌──────────────┐   REST    ┌──────────────┐   HMAC-Signed    ┌─────────────┐
 │  React (SPA) │ ────────► │   NestJS     │ ───Webhook─────► │    n8n      │
-│  Vite+TS     │ ◄──────── │   TypeORM    │                  │ (Self-host) │
+│  Vite+TS     │ ◄──────── │   Prisma     │                  │ (Self-host) │
 └──────────────┘           └──────┬───────┘                  └──────┬──────┘
                                   │ SQL                             │ Slack API
                                   ▼                                 ▼
@@ -21,7 +21,7 @@
 ```
 
 - **Frontend**: React (Vite) + TypeScript + Zustand
-- **Backend**: NestJS + TypeORM + class-validator
+- **Backend**: NestJS + Prisma + class-validator
 - **Database**: PostgreSQL 16 (증빙자료는 BLOB/`bytea`)
 - **Automation**: n8n (Webhook → Slack)
 - **Infra**: Docker Compose (단일 네트워크 `onquest-net`)
@@ -70,8 +70,10 @@ return $input.all();
 ```
 on-quest/
 ├── backend/          # NestJS API 서버
+│   ├── prisma/          # Prisma 스키마 및 마이그레이션
 │   └── src/
 │       ├── quest/         # 퀘스트 도메인
+│       ├── prisma/        # PrismaService
 │       ├── automation/    # n8n 연동 서비스 (HMAC)
 │       └── common/        # 공통 유틸
 ├── frontend/         # React SPA
@@ -94,3 +96,4 @@ on-quest/
 
 - BLOB 저장 방식의 성능 이슈가 우려된다면 10MB 이상 파일은 S3/MinIO 등 외부 스토리지로 offload하는 하이브리드 방식을 고려하세요.
 - 로컬 개발 시 `backend`와 `frontend`만 호스트에서 돌리고 `postgres`/`n8n`만 컴포즈로 띄우면 HMR이 빨라집니다.
+- **Prisma**: `backend` 디렉터리에서 `DATABASE_URL`을 설정한 뒤 `npx prisma migrate dev`로 스키마를 적용합니다. Docker 기동 시 컨테이너가 `prisma migrate deploy`로 마이그레이션을 자동 실행합니다.

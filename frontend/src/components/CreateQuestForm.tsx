@@ -1,15 +1,18 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
+import { questApi } from '../api/questApi';
+import type { AssignableEmployee } from '../types/quest';
 import { useQuestStore } from '../store/questStore';
 
 interface FormErrors {
   title?: string;
   description?: string;
   deadline?: string;
+  assigneeId?: string;
 }
 
 /**
  * 관리자용 퀘스트 생성 폼.
- * 요구사항명세서 §관리자 요구 기능 — 제목/설명/마감기한 유효성 검사 포함.
+ * 담당자는 동일 회사코드 사원 목록에서 선택합니다.
  */
 export function CreateQuestForm() {
   const { createQuest } = useQuestStore();
@@ -17,8 +20,33 @@ export function CreateQuestForm() {
   const [description, setDescription] = useState('');
   const [deadline, setDeadline] = useState('');
   const [assigneeId, setAssigneeId] = useState('');
+  const [employees, setEmployees] = useState<AssignableEmployee[]>([]);
+  const [employeesLoading, setEmployeesLoading] = useState(true);
+  const [employeesError, setEmployeesError] = useState<string | null>(null);
   const [errors, setErrors] = useState<FormErrors>({});
   const [submitting, setSubmitting] = useState(false);
+
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      setEmployeesLoading(true);
+      setEmployeesError(null);
+      try {
+        const list = await questApi.assignableEmployees();
+        if (!cancelled) setEmployees(list);
+      } catch {
+        if (!cancelled) {
+          setEmployees([]);
+          setEmployeesError('사원 목록을 불러오지 못했습니다. 새로고침 후 다시 시도해 주세요.');
+        }
+      } finally {
+        if (!cancelled) setEmployeesLoading(false);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, []);
 
   const validate = (): FormErrors => {
     const err: FormErrors = {};
@@ -32,6 +60,8 @@ export function CreateQuestForm() {
     if (!deadline) err.deadline = '마감 기한을 선택하세요.';
     else if (new Date(deadline).getTime() <= Date.now())
       err.deadline = '마감 기한은 현재 시각 이후여야 합니다.';
+
+    if (!assigneeId.trim()) err.assigneeId = '담당 사원을 목록에서 선택하세요.';
 
     return err;
   };
@@ -48,7 +78,7 @@ export function CreateQuestForm() {
         title: title.trim(),
         description: description.trim(),
         deadline: new Date(deadline).toISOString(),
-        assigneeId: assigneeId.trim() || undefined,
+        assigneeId: assigneeId.trim(),
       });
       setTitle('');
       setDescription('');
@@ -101,17 +131,33 @@ export function CreateQuestForm() {
             {errors.deadline && <div className="field-error">{errors.deadline}</div>}
           </div>
           <div>
-            <label htmlFor="assignee">담당자 ID (선택)</label>
-            <input
-              id="assignee"
-              value={assigneeId}
-              onChange={(e) => setAssigneeId(e.target.value)}
-              placeholder="신입 사원 Slack ID"
-            />
+            <label htmlFor="assignee">담당 사원</label>
+            {employeesLoading ? (
+              <div className="text-muted" style={{ padding: '0.5rem 0' }}>사원 목록 불러오는 중…</div>
+            ) : (
+              <select
+                id="assignee"
+                value={assigneeId}
+                onChange={(e) => setAssigneeId(e.target.value)}
+                disabled={employees.length === 0}
+              >
+                <option value="">담당 사원을 선택하세요</option>
+                {employees.map((emp) => (
+                  <option key={emp.id} value={emp.slackMemberId}>
+                    {emp.name} · {emp.email}
+                  </option>
+                ))}
+              </select>
+            )}
+            {employeesError && <div className="field-error">{employeesError}</div>}
+            {!employeesLoading && !employeesError && employees.length === 0 && (
+              <div className="field-error">같은 회사코드로 등록된 사원이 없습니다.</div>
+            )}
+            {errors.assigneeId && <div className="field-error">{errors.assigneeId}</div>}
           </div>
         </div>
 
-        <button type="submit" disabled={submitting}>
+        <button type="submit" disabled={submitting || employeesLoading || employees.length === 0}>
           {submitting ? '생성 중…' : '퀘스트 생성'}
         </button>
       </form>

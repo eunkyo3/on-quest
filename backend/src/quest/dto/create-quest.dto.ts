@@ -2,8 +2,8 @@ import { Type } from 'class-transformer';
 import {
   IsDate,
   IsNotEmpty,
-  IsOptional,
   IsString,
+  Matches,
   MaxLength,
   MinDate,
   MinLength,
@@ -30,7 +30,11 @@ export class CreateQuestDto {
   @MinDate(new Date(), { message: '마감 기한은 현재 시각 이후여야 합니다.' })
   deadline!: Date;
 
-  @IsOptional()
+  /** 담당 사원 Slack 멤버 ID (필수) */
   @IsString()
-  assigneeId?: string;
+  @IsNotEmpty({ message: '담당 사원 Slack 멤버 ID는 필수입니다.' })
+  @Matches(/^[A-Z0-9]{8,64}$/i, {
+    message: 'Slack 멤버 ID 형식이 올바르지 않습니다.',
+  })
+  assigneeId!: string;
 }

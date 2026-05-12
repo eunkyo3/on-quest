@@ -103,6 +103,15 @@ label { display: block; margin-bottom: 0.35rem; font-weight: 600; font-size: 0.9
   font-weight: 600;
 }
 .app-header nav a.active { background: var(--primary); color: #fff; }
+.user-chip {
+  display: inline-flex;
+  align-items: center;
+  padding: 0.35rem 0.7rem;
+  border-radius: 999px;
+  border: 1px solid var(--border);
+  color: var(--text-muted);
+  font-size: 0.82rem;
+}
 
 .card {
   background: var(--surface);
@@ -219,10 +228,71 @@ label { display: block; margin-bottom: 0.35rem; font-weight: 600; font-size: 0.9
   margin: 1rem 0 0.5rem;
 }
 
+.tab-row {
+  display: flex;
+  gap: 0.5rem;
+  flex-wrap: wrap;
+  margin-bottom: 0.5rem;
+}
+.tab-row button {
+  padding: 0.55rem 1rem;
+  border-radius: 8px;
+  font-size: 0.9rem;
+}
+
+.text-muted { color: var(--text-muted); }
+
+.card.table-wrap {
+  padding: 0;
+  overflow-x: auto;
+}
+.data-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 0.875rem;
+  min-width: 640px;
+}
+.data-table th,
+.data-table td {
+  padding: 0.65rem 0.85rem;
+  text-align: left;
+  border-bottom: 1px solid var(--border);
+}
+.data-table th {
+  font-weight: 700;
+  color: var(--text-muted);
+  font-size: 0.78rem;
+}
+.data-table tbody tr:hover { background: var(--surface-alt); }
+.mono { font-family: ui-monospace, monospace; font-size: 0.82rem; }
+
 .empty {
   padding: 2rem;
   text-align: center;
   color: var(--text-muted);
   border: 2px dashed var(--border);
   border-radius: 12px;
+}
+
+.auth-shell {
+  min-height: calc(100vh - 90px);
+  display: flex;
+  justify-content: center;
+  align-items: center;
+}
+
+.auth-card {
+  width: min(460px, 96vw);
+}
+
+.auth-description {
+  margin-top: 0;
+  color: var(--text-muted);
+  font-size: 0.9rem;
+}
+
+.auth-link {
+  margin-top: 1rem;
+  color: var(--text-muted);
+  font-size: 0.9rem;
 }

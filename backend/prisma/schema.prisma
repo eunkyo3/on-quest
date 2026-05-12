@@ -7,24 +7,48 @@ datasource db {
   url      = env("DATABASE_URL")
 }
 
+model User {
+  id            String   @id @default(cuid())
+  email         String   @db.VarChar(120)
+  passwordHash  String   @db.VarChar(255)
+  name          String   @db.VarChar(80)
+  slackMemberId String   @db.VarChar(64)
+  companyCode   String   @db.VarChar(32)
+  role          String   @default("employee") @db.VarChar(20)
+  createdAt     DateTime @default(now()) @db.Timestamptz(6)
+  updatedAt     DateTime @updatedAt @db.Timestamptz(6)
+
+  @@unique([email, companyCode])
+  @@unique([slackMemberId, companyCode])
+  @@index([companyCode])
+  @@map("users")
+}
+
 /// 퀘스트 (기존 TypeORM QuestEntity 대응)
 /// status: 0 대기 / 1 진행중 / 2 완료 / 3 반려
 /// proofData: 증빙 BLOB — 목록 조회 시에는 select 에서 제외해 성능 유지
 model Quest {
-  id            String   @id @db.VarChar(8)
-  title         String   @db.VarChar(120)
-  description   String   @db.Text
-  deadline      DateTime @db.Timestamptz(6)
-  status        Int      @default(0) @db.SmallInt
-  feedback      String?  @db.Text
-  proofData     Bytes?
-  proofMimeType String?  @db.VarChar(255)
-  proofFileName String?  @db.VarChar(255)
-  assigneeId    String?  @db.VarChar(64)
-  reviewerId    String?  @db.VarChar(64)
-  createdAt     DateTime @default(now()) @db.Timestamptz(6)
-  updatedAt     DateTime @updatedAt @db.Timestamptz(6)
+  id                     String   @id @db.VarChar(8)
+  title                  String   @db.VarChar(120)
+  description            String   @db.Text
+  deadline               DateTime @db.Timestamptz(6)
+  status                 Int      @default(0) @db.SmallInt
+  feedback               String?  @db.Text
+  proofData              Bytes?
+  proofMimeType          String?  @db.VarChar(255)
+  proofFileName          String?  @db.VarChar(255)
+  /// 사원이 증빙과 함께 제출하는 선택 설명
+  submissionNote         String?  @db.Text
+  assigneeId             String   @db.VarChar(64)
+  reviewerId             String?  @db.VarChar(64)
+  /// 발행한 관리자의 Slack 멤버 ID (증빙 제출 시 멘션용)
+  publisherSlackMemberId String   @db.VarChar(64)
+  companyCode            String   @db.VarChar(32)
+  createdAt              DateTime @default(now()) @db.Timestamptz(6)
+  updatedAt              DateTime @updatedAt @db.Timestamptz(6)
 
   @@index([status])
+  @@index([companyCode])
+  @@index([companyCode, assigneeId])
   @@map("quests")
 }

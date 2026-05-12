@@ -2,13 +2,11 @@ import type { QuestStats } from '../types/quest';
 
 interface Props {
   stats: QuestStats | null;
+  /** 기본: 나의 퀘스트 달성률 */
+  title?: string;
 }
 
-/**
- * 신입 사원용 달성률 시각화 대시보드.
- * - 전체/완료/진행중/대기/반려 건수와 진행률 프로그레스바.
- */
-export function ProgressDashboard({ stats }: Props) {
+export function ProgressDashboard({ stats, title = '📊 나의 퀘스트 달성률' }: Props) {
   const s = stats ?? {
     total: 0,
     completed: 0,
@@ -20,7 +18,7 @@ export function ProgressDashboard({ stats }: Props) {
 
   return (
     <section>
-      <h2 className="section-title">📊 나의 퀘스트 달성률</h2>
+      <h2 className="section-title">{title}</h2>
       <div className="card">
         <div className="progress-bar" role="progressbar" aria-valuenow={s.completionRate} aria-valuemin={0} aria-valuemax={100}>
           <div className="fill" style={{ width: `${s.completionRate}%` }} />

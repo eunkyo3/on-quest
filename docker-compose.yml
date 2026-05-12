@@ -59,7 +59,11 @@ services:
     environment:
       - NODE_ENV=production
       - PORT=3000
+      - LANG=C.UTF-8
+      - LC_ALL=C.UTF-8
       - DATABASE_URL=postgresql://${POSTGRES_USER:-onquest}:${POSTGRES_PASSWORD:-onquest_pw}@postgres:5432/${POSTGRES_DB:-onquest}
+      - JWT_SECRET=${JWT_SECRET:-change_this_jwt_secret}
+      - JWT_EXPIRES_IN=${JWT_EXPIRES_IN:-1h}
       # Internal container hostname; 3초 이내 실시간 알림 목표
       - N8N_WEBHOOK_URL=http://n8n:5678/webhook/onquest
       - N8N_WEBHOOK_SECRET=${N8N_WEBHOOK_SECRET:-super_secret_change_me}
@@ -76,6 +80,7 @@ services:
       args:
         # 빈 값 → 프론트엔드는 동일 origin(/api) 로 요청 → Nginx가 backend 로 프록시
         VITE_API_BASE_URL: ${VITE_API_BASE_URL:-}
+        VITE_IDLE_TIMEOUT_MS: ${VITE_IDLE_TIMEOUT_MS:-1800000}
     container_name: on-quest-frontend
     restart: unless-stopped
     depends_on:

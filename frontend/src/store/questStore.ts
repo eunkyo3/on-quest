@@ -1,6 +1,7 @@
 import { create } from 'zustand';
 import { questApi } from '../api/questApi';
 import type {
+  AssigneeQuestStats,
   CreateQuestPayload,
   Quest,
   QuestStats,
@@ -10,13 +11,15 @@ import type {
 interface QuestState {
   quests: Quest[];
   stats: QuestStats | null;
+  assigneeStats: AssigneeQuestStats[];
   loading: boolean;
   error: string | null;
 
   fetchQuests: () => Promise<void>;
   fetchStats: () => Promise<void>;
+  fetchAssigneeStats: () => Promise<void>;
   createQuest: (payload: CreateQuestPayload) => Promise<Quest>;
-  uploadProof: (id: string, file: File) => Promise<Quest>;
+  uploadProof: (id: string, file: File, submissionNote?: string) => Promise<Quest>;
   reviewQuest: (id: string, payload: ReviewQuestPayload) => Promise<Quest>;
 }
 
@@ -33,6 +36,7 @@ const extractErr = (e: unknown): string => {
 export const useQuestStore = create<QuestState>((set, get) => ({
   quests: [],
   stats: null,
+  assigneeStats: [],
   loading: false,
   error: null,
 
@@ -55,6 +59,15 @@ export const useQuestStore = create<QuestState>((set, get) => ({
     }
   },
 
+  fetchAssigneeStats: async () => {
+    try {
+      const assigneeStats = await questApi.statsByAssignee();
+      set({ assigneeStats });
+    } catch {
+      set({ assigneeStats: [] });
+    }
+  },
+
   createQuest: async (payload) => {
     const created = await questApi.create(payload);
     set({ quests: [created, ...get().quests] });
@@ -62,8 +75,8 @@ export const useQuestStore = create<QuestState>((set, get) => ({
     return created;
   },
 
-  uploadProof: async (id, file) => {
-    const updated = await questApi.uploadProof(id, file);
+  uploadProof: async (id, file, submissionNote) => {
+    const updated = await questApi.uploadProof(id, file, submissionNote);
     set({
       quests: get().quests.map((q) => (q.id === id ? updated : q)),
     });

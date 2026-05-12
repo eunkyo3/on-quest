@@ -1,27 +1,95 @@
 import { NavLink, Navigate, Route, Routes } from 'react-router-dom';
+import { useEffect } from 'react';
+import { RoleRoute } from './auth/components/RoleRoute';
+import { useIdleLogout } from './auth/hooks/useIdleLogout';
+import LoginPage from './auth/pages/LoginPage';
+import SignupPage from './auth/pages/SignupPage';
+import { useAuthStore } from './auth/store/authStore';
 import AdminDashboard from './pages/AdminDashboard';
 import EmployeeDashboard from './pages/EmployeeDashboard';
 
+function homePathForUser(role: string | undefined): string {
+  return role === 'admin' ? '/admin' : '/employee';
+}
+
 export default function App() {
+  const { user, accessToken, hydrate, isHydrated, logout } = useAuthStore();
+  useIdleLogout();
+
+  useEffect(() => {
+    hydrate();
+  }, [hydrate]);
+
+  if (!isHydrated) {
+    return <div className="empty">세션을 확인하는 중…</div>;
+  }
+
+  const roleLabel = user?.role === 'admin' ? '관리자' : '사원';
+  const dashboardPath = user ? homePathForUser(user.role) : '/employee';
+
   return (
     <>
       <header className="app-header">
         <h1>🎮 On-Quest</h1>
-        <nav>
-          <NavLink to="/employee" className={({ isActive }) => (isActive ? 'active' : '')}>
-            신입 사원
-          </NavLink>
-          <NavLink to="/admin" className={({ isActive }) => (isActive ? 'active' : '')}>
-            관리자
-          </NavLink>
-        </nav>
+        {accessToken && user ? (
+          <nav>
+            <NavLink to={dashboardPath} className={({ isActive }) => (isActive ? 'active' : '')} end>
+              대시보드
+            </NavLink>
+            <span className="user-chip">{user.name} ({roleLabel})</span>
+            <button type="button" className="ghost" onClick={logout}>
+              로그아웃
+            </button>
+          </nav>
+        ) : (
+          <nav>
+            <NavLink to="/login" className={({ isActive }) => (isActive ? 'active' : '')}>
+              로그인
+            </NavLink>
+            <NavLink to="/signup" className={({ isActive }) => (isActive ? 'active' : '')}>
+              회원가입
+            </NavLink>
+          </nav>
+        )}
       </header>
       <main className="app-shell">
         <Routes>
-          <Route path="/" element={<Navigate to="/employee" replace />} />
-          <Route path="/employee" element={<EmployeeDashboard />} />
-          <Route path="/admin" element={<AdminDashboard />} />
-          <Route path="*" element={<Navigate to="/employee" replace />} />
+          <Route
+            path="/"
+            element={(
+              <Navigate
+                to={accessToken ? homePathForUser(user?.role) : '/login'}
+                replace
+              />
+            )}
+          />
+          <Route path="/login" element={<LoginPage />} />
+          <Route path="/signup" element={<SignupPage />} />
+          <Route
+            path="/employee"
+            element={(
+              <RoleRoute allowedRole="employee">
+                <EmployeeDashboard />
+              </RoleRoute>
+            )}
+          />
+          <Route
+            path="/admin"
+            element={(
+              <RoleRoute allowedRole="admin">
+                <AdminDashboard />
+              </RoleRoute>
+            )}
+          />
+          <Route
+            path="*"
+            element={(
+              <Navigate
+                to={accessToken ? homePathForUser(user?.role) : '/login'}
+                replace
+              />
+            )}
+          />
         </Routes>
       </main>
     </>

@@ -1,9 +1,12 @@
-import { useEffect } from 'react';
+import { useEffect, useState } from 'react';
 import { ProgressDashboard } from '../components/ProgressDashboard';
 import { QuestList } from '../components/QuestList';
 import { useQuestStore } from '../store/questStore';
 
+type Tab = 'quests' | 'stats';
+
 export default function EmployeeDashboard() {
+  const [tab, setTab] = useState<Tab>('quests');
   const { quests, stats, loading, error, fetchQuests, fetchStats } = useQuestStore();
 
   useEffect(() => {
@@ -13,18 +16,43 @@ export default function EmployeeDashboard() {
 
   return (
     <div>
-      <ProgressDashboard stats={stats} />
+      <div className="tab-row" role="tablist" aria-label="사원 메뉴">
+        <button
+          type="button"
+          className={tab === 'quests' ? '' : 'ghost'}
+          role="tab"
+          aria-selected={tab === 'quests'}
+          onClick={() => setTab('quests')}
+        >
+          내 퀘스트
+        </button>
+        <button
+          type="button"
+          className={tab === 'stats' ? '' : 'ghost'}
+          role="tab"
+          aria-selected={tab === 'stats'}
+          onClick={() => setTab('stats')}
+        >
+          내 통계
+        </button>
+      </div>
 
-      <h2 className="section-title" style={{ marginTop: '1.5rem' }}>🗂 내 퀘스트</h2>
-      {error && <div className="feedback">⚠ {error}</div>}
-      {loading ? (
-        <div className="empty">불러오는 중…</div>
+      {tab === 'stats' ? (
+        <ProgressDashboard stats={stats} title="📊 내 퀘스트 통계" />
       ) : (
-        <QuestList
-          quests={quests}
-          mode="employee"
-          emptyText="아직 배정된 퀘스트가 없어요. 관리자에게 요청해보세요!"
-        />
+        <>
+          {error && <div className="feedback">⚠ {error}</div>}
+          <h2 className="section-title" style={{ marginTop: 0 }}>🗂 배정된 퀘스트</h2>
+          {loading ? (
+            <div className="empty">불러오는 중…</div>
+          ) : (
+            <QuestList
+              quests={quests}
+              mode="employee"
+              emptyText="아직 배정된 퀘스트가 없어요. 관리자에게 요청해보세요!"
+            />
+          )}
+        </>
       )}
     </div>
   );

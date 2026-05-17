@@ -2,10 +2,12 @@
 
 신입 사원의 조직 적응을 돕기 위해 **퀘스트** 형태의 과제를 부여하고, 사수(관리자)가 증빙을 검토하며, **n8n**을 통해 **Slack**으로 실시간 알림을 보내는 MVP입니다.
 
-- **멀티 테넌트**: `companyCode` 단위로 사용자·퀘스트가 격리됩니다.
-- **역할 기반 UI**: `admin`(관리자) / `employee`(사원) 대시보드 분리
-- **증빙 저장**: PostgreSQL `bytea` BLOB (최대 10MB/건)
-- **Slack 연동**: 퀘스트 생성 · 증빙 제출 · 검토 결과 3종 이벤트
+- **멀티 테넌트**: `companyCode` 단위로 사용자·퀘스트 격리
+- **역할 기반 UI**: `admin` / `employee` 대시보드·상세 페이지 분리
+- **퀘스트 v2 상태**: 대기 → 착수 → 검토 대기 → 완료/반려
+- **증빙 저장**: PostgreSQL `bytea` BLOB (건당 최대 10MB)
+- **Slack 연동**: 생성 · 제출 · 검토 · 마감 임박 · 마감 연체 (5종 이벤트)
+- **프론트 UX**: 토스트 알림, 페이징·필터, 드래그앤드롭 제출, 증빙 미리보기, JWT refresh
 
 ---
 
@@ -13,6 +15,7 @@
 
 - [시스템 구성](#시스템-구성)
 - [퀘스트 생명주기](#퀘스트-생명주기)
+- [프론트엔드 기능](#프론트엔드-기능)
 - [Slack 알림](#slack-알림)
 - [빠른 시작](#빠른-시작)
 - [환경 변수](#환경-변수)
@@ -21,6 +24,7 @@
 - [로컬 개발](#로컬-개발)
 - [보안 설계](#보안-설계)
 - [문제 해결 / 개발 팁](#문제-해결--개발-팁)
+- [앞으로 진행할 부분](#앞으로-진행할-부분)
 
 ---
 
@@ -29,22 +33,22 @@
 ```
 ┌──────────────────┐  REST + JWT   ┌──────────────────┐  HMAC Webhook   ┌─────────────┐
 │  React SPA       │ ────────────► │  NestJS API      │ ──────────────► │    n8n      │
-│  Vite · Zustand  │ ◄──────────── │  Prisma · JWT    │                 │  (self-host)│
-│  Nginx (/api 프록시)│              └────────┬─────────┘                 └──────┬──────┘
-└──────────────────┘                       │ SQL                              │ Slack API
-                                           ▼                                  ▼
-                                   ┌──────────────┐                   ┌─────────────┐
-                                   │ PostgreSQL 16│                   │   Slack     │
-                                   │ quests BLOB  │                   │ #onboarding │
-                                   └──────────────┘                   └─────────────┘
+│  Vite · Zustand  │ ◄──────────── │  Prisma · Cron   │                 │  (self-host)│
+│  Nginx (/api)    │   refresh     └────────┬─────────┘                 └──────┬──────┘
+└──────────────────┘                        │ SQL                              │ Slack API
+                                            ▼                                  ▼
+                                    ┌──────────────┐                   ┌─────────────┐
+                                    │ PostgreSQL 16│                   │   Slack     │
+                                    │ quests BLOB  │                   │ #onboarding │
+                                    └──────────────┘                   └─────────────┘
 ```
 
 | 계층 | 기술 | 버전(대표) |
 | --- | --- | --- |
 | Frontend | React, Vite, TypeScript, Zustand, React Router | React 18, Vite 5 |
-| Backend | NestJS, Prisma, class-validator, Passport JWT | Nest 10, Prisma 5 |
+| Backend | NestJS, Prisma, `@nestjs/schedule`, Passport JWT | Nest 10, Prisma 5 |
 | DB | PostgreSQL 16 | Alpine 이미지 |
-| Automation | n8n (Webhook → Code → Switch → Slack) | latest |
+| Automation | n8n (Webhook → HMAC → Switch → Slack) | latest |
 | Infra | Docker Compose, Nginx | 단일 브리지 `onquest-net` |
 
 ### 서비스 URL (Docker Compose 기본)
@@ -56,34 +60,39 @@
 | n8n | http://localhost:5678 | Basic Auth (`N8N_BASIC_AUTH_*`) |
 | Postgres | localhost:5432 | 기본 `onquest` / `onquest_pw` |
 
-프론트엔드가 Docker로 뜰 때 `VITE_API_BASE_URL`을 비우면 **동일 origin**(`http://localhost:8080/api`)으로 API를 호출하고, Nginx가 백엔드로 프록시합니다.
+Docker 환경에서 `VITE_API_BASE_URL`을 비우면 **동일 origin**(`http://localhost:8080/api`)으로 요청하고, Nginx가 백엔드로 프록시합니다.
 
 ---
 
 ## 퀘스트 생명주기
 
-### 상태 코드
+### 상태 코드 (v2)
 
-| 코드 | 라벨 | 설명 |
-| --- | --- | --- |
-| `0` | 대기 | 관리자가 발행만 한 상태 |
-| `1` | 검토 대기 | 사원이 증빙을 제출해 관리자 검토를 기다리는 상태 (`IN_PROGRESS`) |
-| `2` | 완료 | 관리자 승인 |
-| `3` | 반려 | 관리자 반려 (피드백 필수) |
+| 코드 | enum | 라벨 | 설명 |
+| --- | --- | --- | --- |
+| `0` | `PENDING` | 대기 | 관리자 발행만 된 상태 |
+| `1` | `IN_PROGRESS` | 착수 | 사원이 업무를 시작한 상태 |
+| `2` | `SUBMITTED` | 검토 대기 | 증빙 제출 후 관리자 검토 대기 |
+| `3` | `COMPLETED` | 완료 | 관리자 승인 |
+| `4` | `REJECTED` | 반려 | 관리자 반려 (피드백 필수) |
+
+> 기존 DB(0~3 코드)를 쓰던 경우 `prisma migrate deploy`로 `20260517120000_quest_status_v2` 마이그레이션이 자동 적용됩니다.
 
 ### 역할별 기능
 
 | 역할 | 주요 기능 |
 | --- | --- |
-| **admin** | 퀘스트 발행, 담당 사원 선택, 증빙 검토(승인/반려), 전체·담당자별 통계 |
-| **employee** | 배정된 퀘스트 조회, 증빙 파일 + 선택적 추가 설명 제출, 재제출(반려 후), 증빙 다운로드 |
+| **admin** | 퀘스트 발행·**수정·삭제(대기만)**, 담당자 선택, **검토 대기** 목록 검토, 증빙 미리보기/다운로드, 전체·담당자별 통계, 목록 필터·페이징 |
+| **employee** | 배정 퀘스트 조회, **착수**, 증빙 + 선택 설명 제출, 반려 후 재제출, 상세·다운로드 |
 
 ### 일반적인 흐름
 
-1. 관리자가 퀘스트 생성 → 담당자 Slack ID 지정 → `quest.created` Slack 알림
-2. 사원이 증빙 업로드(+ `submissionNote` 선택) → 상태 `검토 대기(1)` → `quest.proof_uploaded` 알림
-3. 관리자가 승인/반려 → `quest.reviewed` 알림
-4. 반려 시 사원이 다시 증빙 제출 가능
+1. 관리자 퀘스트 생성 → `quest.created` Slack 알림
+2. 사원 **착수** (`POST /quests/:id/start`) → 상태 `1`
+3. 사원 증빙 업로드(+ `submissionNote` 선택) → 상태 `2` → `quest.proof_uploaded` (증빙 공유 URL 포함)
+4. 관리자 승인/반려 → `quest.reviewed` (검토자 Slack ID 자동 기록)
+5. 반려 시 사원이 다시 착수·재제출 가능
+6. (백그라운드) 마감 24시간 이내·연체 시 Cron → `quest.deadline_soon` / `quest.deadline_overdue`
 
 ### 데이터 모델 요약
 
@@ -94,19 +103,36 @@
 
 **Quest** (`quests`)
 
-- `id`: 8자 영숫자 (`nanoid` 커스텀)
-- `proofData` / `proofMimeType` / `proofFileName`: 증빙 BLOB (목록 API에서는 BLOB 제외)
-- `submissionNote`: 사원이 제출 시 함께 보내는 선택 설명 (최대 5,000자)
-- `assigneeId`, `publisherSlackMemberId`: Slack 멤버 ID (`U…` 형식)
-- `companyCode`: 테넌트 격리 키
+- `id`: 8자 영숫자 (`nanoid`)
+- `proofData` / `proofMimeType` / `proofFileName`: 증빙 BLOB (목록 API에서 BLOB 제외)
+- `submissionNote`: 선택 설명 (최대 5,000자)
+- `assigneeId`, `publisherSlackMemberId`: Slack 멤버 ID
+- `deadlineSoonNotifiedAt`, `overdueNotifiedAt`: 마감 알림 중복 방지
+- `companyCode`: 테넌트 격리
+
+---
+
+## 프론트엔드 기능
+
+| 기능 | 경로·구현 |
+| --- | --- |
+| 관리자 대시보드 | `/admin` — 검토 대기 / 전체 퀘스트, 상태 필터, 페이지네이션 |
+| 사원 대시보드 | `/employee` — 내 퀘스트, 필터·페이징 |
+| 퀘스트 상세 | `/admin/quests/:id`, `/employee/quests/:id` — 상세·수정(대기)·삭제·검토/제출 UI |
+| 토스트 알림 | `toastStore` + `ToastContainer` (`alert` 대신) |
+| 증빙 제출 UX | 드래그앤드롭, 이미지 썸네일, 허용 형식 안내 |
+| 증빙 미리보기 | 관리자·담당자 `GET …/proof/preview` (Blob) |
+| 담당자 표시 | 카드에 `assigneeName` + Slack ID |
+| 인증 | JWT access + refresh, 401 시 자동 갱신, 무활동 로그아웃 |
+| 역할 라우팅 | `RoleRoute` (`/admin`, `/employee` 분리) |
 
 ---
 
 ## Slack 알림
 
-NestJS는 비즈니스 트랜잭션 **성공 후** n8n 웹훅을 **fire-and-forget**으로 호출합니다(실패해도 API 응답은 성공). SLA 목표는 **3초 이내** Slack 전달입니다.
+NestJS는 트랜잭션 **성공 후** n8n 웹훅을 **fire-and-forget**으로 호출합니다. SLA 목표는 **3초 이내** Slack 전달입니다.
 
-### 웹훅 페이로드 형식
+### 웹훅 페이로드
 
 ```json
 {
@@ -116,42 +142,32 @@ NestJS는 비즈니스 트랜잭션 **성공 후** n8n 웹훅을 **fire-and-forg
 }
 ```
 
-헤더: `X-OnQuest-Signature`, `X-OnQuest-Timestamp`, `X-OnQuest-Event`
-
-서명은 `stableStringify`(키 정렬 JSON) + HMAC-SHA256(`N8N_WEBHOOK_SECRET`)입니다. n8n Code 노드 검증 로직은 `n8n/onquest-workflow.template.json`과 동일해야 합니다.
+헤더: `X-OnQuest-Signature`, `X-OnQuest-Timestamp`, `X-OnQuest-Event`  
+서명: `stableStringify` + HMAC-SHA256 (`N8N_WEBHOOK_SECRET`)
 
 ### 이벤트별 `data` 필드
 
-| event | Slack 메시지 요약 | 주요 `data` 필드 |
+| event | 요약 | 주요 `data` |
 | --- | --- | --- |
-| `quest.created` | 새 퀘스트 발행 | `title`, `deadline`(ISO), `deadlineDisplay`(분 단위), `assigneeId`, `publisherSlackMemberId` |
+| `quest.created` | 새 퀘스트 | `title`, `deadline`, `deadlineDisplay`, `assigneeId`, `publisherSlackMemberId` |
 | `quest.proof_uploaded` | 증빙 제출 | `title`, `fileName`, `proofUrl`, `proofMimeType`, `submissionNote`, `assigneeId`, `publisherSlackMemberId` |
-| `quest.reviewed` | 승인/반려 | `title`, `status`(2 또는 3), `feedback`, `assigneeId` |
+| `quest.reviewed` | 승인/반려 | `title`, `status`(3 또는 4), `feedback`, `reviewerId`, `assigneeId` |
+| `quest.deadline_soon` | 마감 24h 이내 | `title`, `deadlineDisplay`, `assigneeId`, `publisherSlackMemberId` |
+| `quest.deadline_overdue` | 마감 연체 | 동일 |
 
-### 표시 규칙
+### 표시·링크 규칙
 
-- **마감 시각**: DB/API는 `timestamptz` ISO 전체(`…T06:30:00.000Z`)를 저장하고, Slack·프론트는 **분 단위**(`deadlineDisplay`, `formatDateTimeToMinute`)만 표시합니다.
-- **추가 설명**: `submissionNote`가 있을 때만 Slack 메시지에 `• 추가 설명:` 줄을 붙입니다.
-- **증빙 링크**: 제출 시 HMAC 서명 **공유 URL**(`proofUrl`)을 생성합니다. Slack에서 `<URL\|파일명>` 형식으로 클릭 가능하며, 이미지는 인라인 미리보기, PDF 등은 다운로드됩니다.
+- **마감**: DB는 ISO 전체 저장, Slack·UI는 **분 단위** (`deadlineDisplay`, `formatDateTimeToMinute`)
+- **추가 설명**: `submissionNote` 있을 때만 Slack에 표시
+- **증빙 링크**: `proofUrl` → `GET /api/quests/{id}/proof/share?token=…` (JWT 불필요, TTL 기본 7일)
 
-공유 URL 예시:
-
-```
-GET /api/quests/{id}/proof/share?token={signedToken}
-```
-
-- JWT 불필요, 토큰 만료·서명 검증 (`PROOF_SHARE_SECRET`, 기본 TTL 7일)
-- 운영 시 `API_PUBLIC_URL`은 Slack/n8n이 **실제로 접근 가능한** 백엔드 주소여야 합니다.
-
-### n8n 워크플로우 설정
+### n8n 설정
 
 1. http://localhost:5678 접속
-2. **Import from File** → `n8n/onquest-workflow.template.json`
-3. 각 **Slack** 노드에 워크스페이스 Credential 연결, 채널(`#onboarding` 등) 수정
-4. Webhook path: `onquest`, Method: `POST` → 활성화 후 URL이 `http://n8n:5678/webhook/onquest`(Docker 내부)와 일치하는지 확인
-5. `docker-compose.yml`의 n8n 환경 변수(`NODE_FUNCTION_ALLOW_BUILTIN=crypto`, `N8N_BLOCK_ENV_ACCESS_IN_NODE=false`)가 적용되어 있는지 확인
-
-템플릿을 수정한 뒤에는 n8n UI에서 **재 import**하거나 노드 문구를 수동으로 맞춰야 합니다.
+2. **Import** → `n8n/onquest-workflow.template.json`
+3. Slack Credential·채널 연결
+4. Webhook path `onquest`, **Active** → Docker 내부 URL `http://n8n:5678/webhook/onquest`
+5. Compose에 `NODE_FUNCTION_ALLOW_BUILTIN=crypto`, `N8N_BLOCK_ENV_ACCESS_IN_NODE=false` 확인
 
 ---
 
@@ -161,7 +177,7 @@ GET /api/quests/{id}/proof/share?token={signedToken}
 
 ```bash
 cp .env.example .env
-# JWT_SECRET, N8N_WEBHOOK_SECRET, N8N_BASIC_AUTH_PASSWORD 등을 반드시 교체하세요.
+# JWT_SECRET, N8N_WEBHOOK_SECRET, N8N_BASIC_AUTH_PASSWORD 등 교체
 ```
 
 ### 2) 전체 스택 기동
@@ -170,73 +186,80 @@ cp .env.example .env
 docker compose up -d --build
 ```
 
+백엔드 기동 시 `prisma migrate deploy`가 자동 실행됩니다 (상태 v2·마감 알림 컬럼 포함).
+
 ### 3) 동작 확인
 
-1. http://localhost:8080 → 회원가입(관리자/사원, Slack 멤버 ID + 회사코드)
-2. 관리자로 로그인 → 퀘스트 발행
-3. 사원으로 로그인 → 증빙 제출
-4. n8n 실행 이력 + Slack 채널 메시지 확인
+1. http://localhost:8080 → 회원가입 (관리자/사원, Slack ID + 회사코드)
+2. 관리자 → 퀘스트 발행
+3. 사원 → **착수** → 증빙 제출
+4. 관리자 → 검토 대기 목록에서 승인/반려
+5. n8n 실행 이력 + Slack 채널 확인
 
 ---
 
 ## 환경 변수
 
-`.env.example` 기준 전체 목록입니다.
-
 | 변수 | 설명 | 기본/예시 |
 | --- | --- | --- |
 | `POSTGRES_*` | DB 접속 | `onquest` / `onquest_pw` |
-| `DATABASE_URL` | Prisma (로컬 backend 실행 시) | `postgresql://…@localhost:5432/onquest` |
+| `DATABASE_URL` | Prisma (로컬 backend) | `postgresql://…@localhost:5432/onquest` |
 | `JWT_SECRET` | Access token 서명 | **운영에서 변경 필수** |
-| `JWT_EXPIRES_IN` | 토큰 만료 | `1h` |
-| `N8N_WEBHOOK_URL` | Nest → n8n URL | Compose: `http://n8n:5678/webhook/onquest` |
-| `N8N_WEBHOOK_SECRET` | HMAC 공유 시크릿 | Nest ↔ n8n 동일 값 |
-| `N8N_BASIC_AUTH_*` | n8n UI 로그인 | |
-| `API_PUBLIC_URL` | Slack 증빙 링크 베이스 (**`/api` 포함**) | `http://localhost:3000/api` |
-| `PROOF_SHARE_SECRET` | 증빙 공유 토큰 HMAC | 비우면 `N8N_WEBHOOK_SECRET` 사용 |
-| `PROOF_SHARE_TTL_SECONDS` | 공유 링크 TTL(초) | `604800` (7일) |
-| `CORS_ORIGIN` | 허용 Origin (쉼표 구분 가능) | `http://localhost:8080` |
-| `VITE_API_BASE_URL` | 프론트 API 베이스 | Docker: 비움 → `/api` 프록시 |
-| `VITE_IDLE_TIMEOUT_MS` | 무활동 자동 로그아웃 | `1800000` (30분) |
+| `JWT_EXPIRES_IN` | Access 만료 | `1h` |
+| `JWT_REFRESH_EXPIRES_IN` | Refresh 만료 | `7d` |
+| `N8N_WEBHOOK_URL` | Nest → n8n | `http://n8n:5678/webhook/onquest` |
+| `N8N_WEBHOOK_SECRET` | HMAC 시크릿 | Nest ↔ n8n 동일 |
+| `N8N_BASIC_AUTH_*` | n8n UI | |
+| `API_PUBLIC_URL` | Slack 증빙 링크 (**`/api` 포함**) | `http://localhost:3000/api` |
+| `PROOF_SHARE_SECRET` | 증빙 공유 HMAC | 비우면 `N8N_WEBHOOK_SECRET` |
+| `PROOF_SHARE_TTL_SECONDS` | 공유 링크 TTL | `604800` |
+| `CORS_ORIGIN` | 허용 Origin | `http://localhost:8080` |
+| `VITE_API_BASE_URL` | 프론트 API | Docker: 비움 |
+| `VITE_IDLE_TIMEOUT_MS` | 무활동 로그아웃 | `1800000` |
 | `TZ` | 시간대 | `Asia/Seoul` |
 
-**Docker + Slack 링크 팁:** 컨테이너 안 Slack/n8n이 호스트의 API에 접근해야 하면 Windows/Mac에서 `API_PUBLIC_URL=http://host.docker.internal:3000/api` 등을 검토하세요.
+**Slack 링크:** 컨테이너에서 호스트 API 접근 시 `API_PUBLIC_URL=http://host.docker.internal:3000/api` (Windows/Mac Docker) 검토.
 
 ---
 
 ## API 개요
 
-Base path: `/api` (인증 필요 엔드포인트는 `Authorization: Bearer <token>`)
+Base: `/api` · 인증: `Authorization: Bearer <accessToken>`
 
-### 인증 ` /auth`
+### 인증 `/auth`
 
 | Method | Path | 설명 |
 | --- | --- | --- |
-| POST | `/auth/signup` | 회원가입 |
-| POST | `/auth/login` | 로그인 → `accessToken`, `user` |
+| POST | `/auth/signup` | 회원가입 → `accessToken`, `refreshToken`, `user` |
+| POST | `/auth/login` | 로그인 → 동일 |
+| POST | `/auth/refresh` | `{ refreshToken }` → 새 토큰 쌍 |
 | GET | `/auth/me` | 현재 사용자 (JWT) |
 
-### 퀘스트 ` /quests` (JWT)
+### 퀘스트 `/quests` (JWT)
 
 | Method | Path | 권한 | 설명 |
 | --- | --- | --- | --- |
-| POST | `/quests` | admin | 퀘스트 발행 |
-| GET | `/quests` | all | 목록 (admin: 회사 전체, employee: 본인 담당) |
-| GET | `/quests/stats` | all | 진행 통계 |
+| POST | `/quests` | admin | 발행 |
+| GET | `/quests?page=&limit=&status=` | all | **페이지 목록** `{ items, total, page, limit, totalPages }` |
+| GET | `/quests/stats` | all | 통계 (`pending`, `started`, `submitted`, `completed`, `rejected`) |
 | GET | `/quests/stats/by-assignee` | admin | 담당자별 통계 |
-| GET | `/quests/assignable-employees` | admin | 발행 시 선택 가능한 사원 목록 |
-| GET | `/quests/:id` | all | 상세 |
-| POST | `/quests/:id/proof` | assignee | 증빙 업로드 (`multipart`: `file`, `submissionNote`) |
-| GET | `/quests/:id/proof` | all* | 증빙 다운로드 (JWT, 회사/담당 권한) |
-| PATCH | `/quests/:id/review` | admin | 검토 `{ status: 2\|3, feedback? }` |
+| GET | `/quests/assignable-employees` | admin | 발행 시 사원 목록 |
+| GET | `/quests/:id` | all | 상세 (`assigneeName` 포함) |
+| PATCH | `/quests/:id` | admin | **수정** (대기만: title, description, deadline) |
+| DELETE | `/quests/:id` | admin | **삭제** (대기만) |
+| POST | `/quests/:id/start` | assignee | **착수** |
+| POST | `/quests/:id/proof` | assignee | 증빙 업로드 (`file`, `submissionNote`) |
+| GET | `/quests/:id/proof` | all* | 다운로드 |
+| GET | `/quests/:id/proof/preview` | all* | 미리보기 (inline/새 탭) |
+| PATCH | `/quests/:id/review` | admin | 검토 `{ status: 3\|4, feedback? }` (반려 시 feedback 필수) |
 
-\* 같은 `companyCode` 내 admin 또는 해당 퀘스트 `assigneeId`
+\* 같은 `companyCode` 내 admin 또는 해당 `assigneeId`
 
 ### 증빙 공유 (JWT 없음)
 
 | Method | Path | 설명 |
 | --- | --- | --- |
-| GET | `/quests/:id/proof/share?token=…` | 서명 토큰으로 증빙 조회 (Slack 링크용) |
+| GET | `/quests/:id/proof/share?token=…` | Slack용 서명 URL |
 
 ---
 
@@ -246,31 +269,26 @@ Base path: `/api` (인증 필요 엔드포인트는 `Authorization: Bearer <toke
 on-quest/
 ├── backend/
 │   ├── prisma/
-│   │   ├── schema.prisma          # User, Quest 모델
-│   │   └── migrations/
+│   │   ├── schema.prisma
+│   │   └── migrations/          # status v2, submission_note, …
 │   └── src/
-│       ├── auth/                  # JWT 회원가입·로그인
+│       ├── auth/
 │       ├── quest/
 │       │   ├── quest.controller.ts
-│       │   ├── quest-proof-share.controller.ts  # 공개 증빙 링크
+│       │   ├── quest-proof-share.controller.ts
+│       │   ├── quest-deadline.scheduler.ts   # 마감 Cron
 │       │   ├── quest.service.ts
 │       │   └── dto/
-│       ├── automation/
-│       │   └── n8n.service.ts     # HMAC 웹훅
+│       ├── automation/n8n.service.ts
 │       └── common/utils/
-│           ├── id-generator.ts
-│           ├── format-datetime.ts
-│           └── proof-share-token.ts
 ├── frontend/
 │   └── src/
-│       ├── pages/                 # AdminDashboard, EmployeeDashboard
-│       ├── components/            # QuestItem, CreateQuestForm, …
-│       ├── auth/                  # 로그인·회원가입·역할 라우트
-│       ├── api/                   # axios + questApi
-│       ├── store/                 # Zustand (quest, auth)
+│       ├── pages/               # Admin/Employee Dashboard, QuestDetailPage
+│       ├── components/          # QuestItem, ToastContainer, …
+│       ├── store/               # questStore, toastStore, authStore
+│       ├── api/questApi.ts      # refresh 인터셉터
 │       └── utils/formatDateTime.ts
-├── n8n/
-│   └── onquest-workflow.template.json
+├── n8n/onquest-workflow.template.json
 ├── docker-compose.yml
 ├── .env.example
 └── README.md
@@ -280,42 +298,29 @@ on-quest/
 
 ## 로컬 개발
 
-### Docker만 (권장)
+### Docker (권장)
 
 ```bash
 docker compose up -d --build
 ```
 
-백엔드 컨테이너 기동 시 `prisma migrate deploy`가 자동 실행됩니다.
-
-### 호스트에서 backend + frontend (HMR)
+### 호스트 HMR
 
 ```bash
-# 터미널 1 — DB·n8n만 Compose
 docker compose up -d postgres n8n
 
-# 터미널 2 — backend
-cd backend
-cp ../.env.example .env   # DATABASE_URL 등 조정
-npm install
-npx prisma migrate dev
-npm run start:dev         # http://localhost:3000/api
-
-# 터미널 3 — frontend
-cd frontend
-npm install
-# .env: VITE_API_BASE_URL=http://localhost:3000
-npm run dev               # Vite 기본 http://localhost:5173
+cd backend && npm install && npx prisma migrate dev && npm run start:dev
+cd frontend && npm install && npm run dev
+# VITE_API_BASE_URL=http://localhost:3000
 ```
 
-### 유용한 스크립트
+### 유용한 명령
 
-| 위치 | 명령 | 설명 |
-| --- | --- | --- |
-| backend | `npm run start:dev` | Nest watch 모드 |
-| backend | `npm run prisma:migrate` | 마이그레이션 개발 |
-| frontend | `npm run dev` | Vite dev server |
-| frontend | `npm run build` | 프로덕션 빌드 |
+| 위치 | 명령 |
+| --- | --- |
+| backend | `npm run start:dev` |
+| backend | `npx prisma migrate dev` |
+| frontend | `npm run dev` / `npm run build` |
 
 ---
 
@@ -323,20 +328,16 @@ npm run dev               # Vite 기본 http://localhost:5173
 
 | 항목 | 구현 |
 | --- | --- |
-| API 인증 | JWT (Passport), 역할·회사코드 기반 접근 제어 |
-| n8n 웹훅 | HMAC-SHA256 + 타임스탬프 ±5분 윈도우 |
-| 증빙 공유 | 단기 HMAC 토큰 URL, `timingSafeEqual` 서명 비교 |
-| 비밀번호 | bcrypt (cost 10) |
+| API 인증 | JWT access + refresh, 역할·`companyCode` 격리 |
+| n8n 웹훅 | HMAC-SHA256, 타임스탬프 ±5분 |
+| 증빙 공유 | HMAC URL, TTL, `timingSafeEqual` |
+| 비밀번호 | bcrypt |
 | CORS | `CORS_ORIGIN` 화이트리스트 |
-| n8n 권한 분리 | API DB 자격 증명 없이 Slack 토큰만 n8n에 보관 (권장) |
-| BLOB 목록 조회 | `proofData`는 목록 `select`에서 제외 |
+| BLOB 목록 | `proofData` select 제외 |
 
-운영 체크리스트:
+**운영 체크리스트:** 시크릿 교체, `API_PUBLIC_URL` HTTPS, n8n Basic Auth, 증빙 TTL 조정.
 
-- `JWT_SECRET`, `N8N_WEBHOOK_SECRET`, `PROOF_SHARE_SECRET` 기본값 사용 금지
-- `API_PUBLIC_URL`을 HTTPS 공개 주소로 설정
-- n8n Basic Auth 비밀번호 변경
-- 증빙 공유 TTL을 정책에 맞게 조정
+**알려진 MVP 타협:** 회원가입 시 `admin` role 클라이언트 지정(데모용), refresh/localStorage, fire-and-forget 웹훅, BLOB + memoryStorage 동시 업로드 시 메모리 부담.
 
 ---
 
@@ -346,27 +347,95 @@ npm run dev               # Vite 기본 http://localhost:5173
 
 | 증상 | 조치 |
 | --- | --- |
-| `Module 'crypto' is disallowed` | `NODE_FUNCTION_ALLOW_BUILTIN=crypto` ([문서](https://docs.n8n.io/hosting/configuration/configuration-examples/modules-in-code-node/)) |
-| `$env` / 환경 변수 접근 거부 | `N8N_BLOCK_ENV_ACCESS_IN_NODE=false` ([보안 환경 변수](https://docs.n8n.io/hosting/configuration/environment-variables/security/)) |
-| 설정 변경 후 | `docker compose up -d --force-recreate n8n` |
+| `crypto` disallowed | `NODE_FUNCTION_ALLOW_BUILTIN=crypto` |
+| `$env` 거부 | `N8N_BLOCK_ENV_ACCESS_IN_NODE=false` |
+| 변경 후 | `docker compose up -d --force-recreate n8n` |
 
 ### Slack
 
-- 알림이 안 오면: `N8N_WEBHOOK_URL` 연결, 워크플로 **Active**, Slack Credential·채널명 확인
-- 증빙 링크 401/404: `API_PUBLIC_URL` 접근 가능 여부, 토큰 만료, **제출 이전 퀘스트**는 `proofUrl` 미생성(재제출 필요)
+- 알림 없음: 워크플로 Active, `N8N_WEBHOOK_URL`, Credential 확인
+- 증빙 링크 실패: `API_PUBLIC_URL` 외부 접근 가능 여부, 토큰 만료
+- 마감 알림 없음: 백엔드 Cron 동작, 미완료 퀘스트·`deadlineSoonNotifiedAt` null 확인
 
-### 성능
+### API / DB
 
-- 증빙은 DB BLOB(건당 최대 10MB). 대용량·다건이 늘면 S3/MinIO presigned URL 하이브리드 전환을 검토하세요.
-- 웹훅 실패는 백엔드 로그(`n8n webhook failed`)에 남고, API 트랜잭션은 롤백되지 않습니다.
+- `GET /quests`가 배열이 아닌 객체 → **페이징 응답**으로 변경됨 (정상)
+- 상태 코드 0~4 → v2 마이그레이션 필요: `npx prisma migrate deploy`
 
 ### Prisma
 
 ```bash
 cd backend
-npx prisma migrate dev    # 스키마 변경 시
-npx prisma studio         # 데이터 확인
+npx prisma migrate deploy
+npx prisma studio
 ```
+
+---
+
+## 앞으로 진행할 부분
+
+현재 MVP 이후 우선순위를 정리한 로드맵입니다.
+
+### 보안·인증 (우선)
+
+| 항목 | 내용 |
+| --- | --- |
+| 회원가입 role 잠금 | 공개 signup은 `employee` 고정, admin은 시드/초대 코드만 |
+| 로그인 `companyCode` | 동일 이메일 다중 테넌트 시 로그인 폼에 회사코드 추가 |
+| httpOnly 쿠키 | refresh/access를 쿠키로 이전 (XSS 완화) |
+| 증빙 공유 레이트 리미트 | 무차별 URL 접근 방지 |
+
+### 신뢰성·운영
+
+| 항목 | 내용 |
+| --- | --- |
+| **Outbox 패턴** | Slack 웹훅 실패·프로세스 재시작 시 알림 유실 방지 (DB 이벤트 큐 + 워커 재시도) |
+| 헬스체크 | `GET /api/health` (DB·선택 n8n ping) |
+| CI/CD | GitHub Actions — lint, build, `prisma validate` |
+| 자동 테스트 | QuestService, HMAC·공유 토큰 단위 테스트, API e2e |
+
+### 스토리지·성능
+
+| 항목 | 내용 |
+| --- | --- |
+| **S3/MinIO** | BLOB → 객체 스토리지, presigned 업로드/다운로드 (동시 업로드 OOM 해소) |
+| 스트리밍 업로드 | Multer `memoryStorage` 대체 |
+| 목록 최적화 | 필요 시 커서 페이징, 검색(제목·담당자) |
+
+### 제품·도메인
+
+| 항목 | 내용 |
+| --- | --- |
+| 퀘스트 일괄 발행 | CSV/템플릿 기반 다건 생성 |
+| 알림 설정 | 마감 N일 전 사용자·채널별 설정 |
+| 감사 로그 | 검토·수정·삭제 이력 테이블 |
+| Slack 멘션 개선 | 담당자 실명·프로필 연동 (User ↔ Slack API) |
+| 관리자 대시보드 | 미완료 퀘스트만 보기, 엑셀보내기 |
+
+### 프론트엔드 UX
+
+| 항목 | 내용 |
+| --- | --- |
+| 실시간 갱신 | WebSocket/SSE 또는 짧은 폴링으로 목록 자동 갱신 |
+| 접근성 | 키보드 전용 제출·검토, ARIA 보강 |
+| 다국어(i18n) | 한/영 리소스 분리 |
+| 다크 모드 | CSS 변수 테마 확장 |
+
+### 인프라·배포
+
+| 항목 | 내용 |
+| --- | --- |
+| 프로덕션 Compose/K8s | secrets 관리, HTTPS 종단, 리버스 프록시 |
+| n8n 하드닝 | 커스텀 HMAC 노드, Credential Store, UI 외부 비공개 |
+| Observability | 구조화 로그, Slack 실패 메트릭, APM 연동 |
+
+### 문서·협업
+
+| 항목 | 내용 |
+| --- | --- |
+| OpenAPI | `@nestjs/swagger`로 API 문서 자동화 |
+| CONTRIBUTING | 브랜치·커밋·PR 규칙 |
+| CHANGELOG | 버전별 breaking change 기록 (상태 v2 등) |
 
 ---
 

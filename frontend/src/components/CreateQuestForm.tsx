@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react';
 import { questApi } from '../api/questApi';
 import type { AssignableEmployee } from '../types/quest';
 import { useQuestStore } from '../store/questStore';
+import { useToastStore } from '../store/toastStore';
 
 interface FormErrors {
   title?: string;
@@ -86,7 +87,7 @@ export function CreateQuestForm() {
       setAssigneeId('');
       setErrors({});
     } catch (ex) {
-      alert(`생성 실패: ${(ex as Error).message}`);
+      useToastStore.getState().push((ex as Error).message, 'error');
     } finally {
       setSubmitting(false);
     }

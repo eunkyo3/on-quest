@@ -1,20 +1,23 @@
 export enum QuestStatus {
   PENDING = 0,
   IN_PROGRESS = 1,
-  COMPLETED = 2,
-  REJECTED = 3,
+  SUBMITTED = 2,
+  COMPLETED = 3,
+  REJECTED = 4,
 }
 
 export const QUEST_STATUS_LABEL: Record<QuestStatus, string> = {
   [QuestStatus.PENDING]: '대기',
-  [QuestStatus.IN_PROGRESS]: '검토 대기',
+  [QuestStatus.IN_PROGRESS]: '착수',
+  [QuestStatus.SUBMITTED]: '검토 대기',
   [QuestStatus.COMPLETED]: '완료',
   [QuestStatus.REJECTED]: '반려',
 };
 
 export const QUEST_STATUS_COLOR: Record<QuestStatus, string> = {
   [QuestStatus.PENDING]: '#94a3b8',
-  [QuestStatus.IN_PROGRESS]: '#3b82f6',
+  [QuestStatus.IN_PROGRESS]: '#f59e0b',
+  [QuestStatus.SUBMITTED]: '#3b82f6',
   [QuestStatus.COMPLETED]: '#10b981',
   [QuestStatus.REJECTED]: '#ef4444',
 };
@@ -29,9 +32,9 @@ export interface Quest {
   proofFileName: string | null;
   proofMimeType: string | null;
   hasProof: boolean;
-  /** 사원이 제출 시 작성한 선택 설명 */
   submissionNote: string | null;
   assigneeId: string;
+  assigneeName: string | null;
   reviewerId: string | null;
   publisherSlackMemberId: string;
   companyCode: string;
@@ -39,28 +42,42 @@ export interface Quest {
   updatedAt: string;
 }
 
+export interface PaginatedQuests {
+  items: Quest[];
+  total: number;
+  page: number;
+  limit: number;
+  totalPages: number;
+}
+
+export interface QuestListParams {
+  page?: number;
+  limit?: number;
+  status?: QuestStatus;
+}
+
 export interface QuestStats {
   total: number;
-  completed: number;
-  inProgress: number;
   pending: number;
+  started: number;
+  submitted: number;
+  completed: number;
   rejected: number;
   completionRate: number;
 }
 
-/** 관리자용: 퀘스트 배정 이력이 있는 담당자(Slack ID)별 집계 */
 export interface AssigneeQuestStats {
   assigneeId: string;
   assigneeName: string | null;
   total: number;
-  completed: number;
-  inProgress: number;
   pending: number;
+  started: number;
+  submitted: number;
+  completed: number;
   rejected: number;
   completionRate: number;
 }
 
-/** 관리자 발행 시 같은 회사 사원 선택용 */
 export interface AssignableEmployee {
   id: string;
   name: string;
@@ -75,8 +92,18 @@ export interface CreateQuestPayload {
   assigneeId: string;
 }
 
+export interface UpdateQuestPayload {
+  title?: string;
+  description?: string;
+  deadline?: string;
+}
+
 export interface ReviewQuestPayload {
   status: QuestStatus.COMPLETED | QuestStatus.REJECTED;
   feedback?: string;
   reviewerId?: string;
 }
+
+/** 증빙 업로드 허용 MIME (안내·검증용) */
+export const ALLOWED_PROOF_ACCEPT =
+  'image/jpeg,image/png,image/webp,image/gif,application/pdf,.doc,.docx,.xls,.xlsx,.ppt,.pptx,.zip,.txt';

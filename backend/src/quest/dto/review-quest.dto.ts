@@ -3,7 +3,7 @@ import { QuestStatus } from '../enums/quest-status.enum';
 
 /**
  * 관리자 검토 DTO.
- * status 는 완료(2) 또는 반려(3) 만 허용한다.
+ * status 는 완료(3) 또는 반려(4) 만 허용한다.
  */
 export class ReviewQuestDto {
   @IsEnum(QuestStatus, { message: '유효하지 않은 상태 코드입니다.' })

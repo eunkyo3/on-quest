@@ -64,6 +64,7 @@ services:
       - DATABASE_URL=postgresql://${POSTGRES_USER:-onquest}:${POSTGRES_PASSWORD:-onquest_pw}@postgres:5432/${POSTGRES_DB:-onquest}
       - JWT_SECRET=${JWT_SECRET:-change_this_jwt_secret}
       - JWT_EXPIRES_IN=${JWT_EXPIRES_IN:-1h}
+      - JWT_REFRESH_EXPIRES_IN=${JWT_REFRESH_EXPIRES_IN:-7d}
       # Internal container hostname; 3초 이내 실시간 알림 목표
       - N8N_WEBHOOK_URL=http://n8n:5678/webhook/onquest
       - N8N_WEBHOOK_SECRET=${N8N_WEBHOOK_SECRET:-super_secret_change_me}

@@ -1,9 +1,11 @@
 import { create } from 'zustand';
 import { getApiErrorMessage } from '../../api/httpError';
+import { persistAuthTokens } from '../../api/questApi';
 import { authApi } from '../api/authApi';
 import type { AuthUser, SignInPayload, SignUpPayload } from '../types/auth';
 
 const TOKEN_KEY = 'onquest_access_token';
+const REFRESH_KEY = 'onquest_refresh_token';
 const USER_KEY = 'onquest_user';
 
 interface AuthState {
@@ -19,13 +21,14 @@ interface AuthState {
   touchActivity: () => void;
 }
 
-const persist = (token: string, user: AuthUser) => {
-  localStorage.setItem(TOKEN_KEY, token);
+const persist = (accessToken: string, refreshToken: string, user: AuthUser) => {
+  persistAuthTokens(accessToken, refreshToken);
   localStorage.setItem(USER_KEY, JSON.stringify(user));
 };
 
 const clearPersist = () => {
   localStorage.removeItem(TOKEN_KEY);
+  localStorage.removeItem(REFRESH_KEY);
   localStorage.removeItem(USER_KEY);
 };
 
@@ -58,7 +61,7 @@ export const useAuthStore = create<AuthState>((set, get) => ({
   login: async (payload) => {
     try {
       const result = await authApi.login(payload);
-      persist(result.accessToken, result.user);
+      persist(result.accessToken, result.refreshToken, result.user);
       set({ user: result.user, accessToken: result.accessToken, lastActivityAt: Date.now() });
     } catch (e) {
       throw new Error(getApiErrorMessage(e, '로그인에 실패했습니다.'));
@@ -68,7 +71,7 @@ export const useAuthStore = create<AuthState>((set, get) => ({
   signup: async (payload) => {
     try {
       const result = await authApi.signup(payload);
-      persist(result.accessToken, result.user);
+      persist(result.accessToken, result.refreshToken, result.user);
       set({ user: result.user, accessToken: result.accessToken, lastActivityAt: Date.now() });
     } catch (e) {
       throw new Error(getApiErrorMessage(e, '회원가입에 실패했습니다.'));

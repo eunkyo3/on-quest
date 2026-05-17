@@ -3,14 +3,18 @@ import { CreateQuestForm } from '../components/CreateQuestForm';
 import { ProgressDashboard } from '../components/ProgressDashboard';
 import { QuestList } from '../components/QuestList';
 import { useQuestStore } from '../store/questStore';
-import { QuestStatus } from '../types/quest';
+import { QuestStatus, QUEST_STATUS_LABEL } from '../types/quest';
 
 type Tab = 'work' | 'stats';
 
 export default function AdminDashboard() {
   const [tab, setTab] = useState<Tab>('work');
+  const [statusFilter, setStatusFilter] = useState<string>('');
   const {
     quests,
+    page,
+    totalPages,
+    total,
     stats,
     assigneeStats,
     loading,
@@ -21,21 +25,23 @@ export default function AdminDashboard() {
   } = useQuestStore();
 
   useEffect(() => {
-    void fetchQuests();
     void fetchStats();
     void fetchAssigneeStats();
-  }, [fetchQuests, fetchStats, fetchAssigneeStats]);
+  }, [fetchStats, fetchAssigneeStats]);
+
+  useEffect(() => {
+    const status =
+      statusFilter === '' ? undefined : (Number(statusFilter) as QuestStatus);
+    void fetchQuests({ page: 1, status });
+  }, [statusFilter, fetchQuests]);
 
   const pendingReview = useMemo(
-    () =>
-      quests.filter(
-        (q) => Boolean(q.proofFileName?.trim()) && q.status !== QuestStatus.COMPLETED,
-      ),
+    () => quests.filter((q) => q.status === QuestStatus.SUBMITTED),
     [quests],
   );
   const others = useMemo(
-    () => quests.filter((q) => !pendingReview.includes(q)),
-    [quests, pendingReview],
+    () => quests.filter((q) => q.status !== QuestStatus.SUBMITTED),
+    [quests],
   );
 
   return (
@@ -66,9 +72,6 @@ export default function AdminDashboard() {
           <ProgressDashboard stats={stats} title="📊 전사 발행 퀘스트 현황" />
           <section>
             <h2 className="section-title">👥 담당자별 상세 통계</h2>
-            <p className="text-muted" style={{ marginTop: 0, fontSize: '0.9rem' }}>
-              퀘스트를 한 번이라도 배정받은 사원만 표시됩니다.
-            </p>
             {assigneeStats.length === 0 ? (
               <div className="card text-muted">집계할 배정 이력이 없습니다.</div>
             ) : (
@@ -80,7 +83,8 @@ export default function AdminDashboard() {
                       <th>Slack ID</th>
                       <th>전체</th>
                       <th>완료</th>
-                      <th>진행</th>
+                      <th>검토 대기</th>
+                      <th>착수</th>
                       <th>대기</th>
                       <th>반려</th>
                       <th>달성률</th>
@@ -93,7 +97,8 @@ export default function AdminDashboard() {
                         <td className="mono">{row.assigneeId}</td>
                         <td>{row.total}</td>
                         <td>{row.completed}</td>
-                        <td>{row.inProgress}</td>
+                        <td>{row.submitted}</td>
+                        <td>{row.started}</td>
                         <td>{row.pending}</td>
                         <td>{row.rejected}</td>
                         <td>{row.completionRate}%</td>
@@ -109,6 +114,45 @@ export default function AdminDashboard() {
         <>
           <CreateQuestForm />
 
+          <section className="card filter-bar">
+            <label htmlFor="status-filter">상태 필터</label>
+            <select
+              id="status-filter"
+              value={statusFilter}
+              onChange={(e) => setStatusFilter(e.target.value)}
+            >
+              <option value="">전체</option>
+              {(Object.values(QuestStatus).filter((v) => typeof v === 'number') as QuestStatus[]).map(
+                (s) => (
+                  <option key={s} value={s}>
+                    {QUEST_STATUS_LABEL[s]}
+                  </option>
+                ),
+              )}
+            </select>
+            <p className="text-muted" style={{ margin: '0.5rem 0 0' }}>
+              총 {total}건 · {page}/{totalPages || 1} 페이지
+            </p>
+            <div className="quest-actions" style={{ marginTop: '0.5rem' }}>
+              <button
+                type="button"
+                className="ghost"
+                disabled={page <= 1 || loading}
+                onClick={() => void fetchQuests({ page: page - 1 })}
+              >
+                이전
+              </button>
+              <button
+                type="button"
+                className="ghost"
+                disabled={page >= totalPages || loading}
+                onClick={() => void fetchQuests({ page: page + 1 })}
+              >
+                다음
+              </button>
+            </div>
+          </section>
+
           <section>
             <h2 className="section-title">🧾 검토 대기</h2>
             {error && <div className="feedback">⚠ {error}</div>}
@@ -118,6 +162,7 @@ export default function AdminDashboard() {
               <QuestList
                 quests={pendingReview}
                 mode="admin"
+                detailBasePath="/admin/quests"
                 emptyText="검토할 증빙 자료가 없습니다."
               />
             )}
@@ -125,7 +170,12 @@ export default function AdminDashboard() {
 
           <section>
             <h2 className="section-title">📚 전체 퀘스트</h2>
-            <QuestList quests={others} mode="admin" emptyText="등록된 퀘스트가 없습니다." />
+            <QuestList
+              quests={others}
+              mode="admin"
+              detailBasePath="/admin/quests"
+              emptyText="등록된 퀘스트가 없습니다."
+            />
           </section>
         </>
       )}

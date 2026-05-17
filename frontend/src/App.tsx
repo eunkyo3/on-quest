@@ -5,8 +5,10 @@ import { useIdleLogout } from './auth/hooks/useIdleLogout';
 import LoginPage from './auth/pages/LoginPage';
 import SignupPage from './auth/pages/SignupPage';
 import { useAuthStore } from './auth/store/authStore';
+import { ToastContainer } from './components/ToastContainer';
 import AdminDashboard from './pages/AdminDashboard';
 import EmployeeDashboard from './pages/EmployeeDashboard';
+import QuestDetailPage from './pages/QuestDetailPage';
 
 function homePathForUser(role: string | undefined): string {
   return role === 'admin' ? '/admin' : '/employee';
@@ -29,6 +31,7 @@ export default function App() {
 
   return (
     <>
+      <ToastContainer />
       <header className="app-header">
         <h1>🎮 On-Quest</h1>
         {accessToken && user ? (
@@ -74,10 +77,26 @@ export default function App() {
             )}
           />
           <Route
+            path="/employee/quests/:id"
+            element={(
+              <RoleRoute allowedRole="employee">
+                <QuestDetailPage mode="employee" listPath="/employee" />
+              </RoleRoute>
+            )}
+          />
+          <Route
             path="/admin"
             element={(
               <RoleRoute allowedRole="admin">
                 <AdminDashboard />
+              </RoleRoute>
+            )}
+          />
+          <Route
+            path="/admin/quests/:id"
+            element={(
+              <RoleRoute allowedRole="admin">
+                <QuestDetailPage mode="admin" listPath="/admin" />
               </RoleRoute>
             )}
           />

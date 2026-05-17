@@ -27,7 +27,7 @@ export class CreateQuestDto {
 
   @Type(() => Date)
   @IsDate({ message: '마감 기한은 유효한 날짜여야 합니다.' })
-  @MinDate(new Date(), { message: '마감 기한은 현재 시각 이후여야 합니다.' })
+  @MinDate(() => new Date(), { message: '마감 기한은 현재 시각 이후여야 합니다.' })
   deadline!: Date;
 
   /** 담당 사원 Slack 멤버 ID (필수) */

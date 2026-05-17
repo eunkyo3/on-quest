@@ -25,6 +25,13 @@ interface JwtPayload {
   role: string;
   companyCode: string;
   slackMemberId: string;
+  type: 'access' | 'refresh';
+}
+
+export interface AuthTokens {
+  accessToken: string;
+  refreshToken: string;
+  user: AuthUser;
 }
 
 @Injectable()
@@ -35,7 +42,7 @@ export class AuthService {
     private readonly configService: ConfigService,
   ) {}
 
-  async signUp(dto: SignUpDto): Promise<{ accessToken: string; user: AuthUser }> {
+  async signUp(dto: SignUpDto): Promise<AuthTokens> {
     const existing = await this.prisma.user.findFirst({
       where: {
         OR: [
@@ -79,11 +86,10 @@ export class AuthService {
       },
     });
 
-    const accessToken = await this.signToken(user);
-    return { accessToken, user };
+    return this.issueTokens(user);
   }
 
-  async signIn(dto: SignInDto): Promise<{ accessToken: string; user: AuthUser }> {
+  async signIn(dto: SignInDto): Promise<AuthTokens> {
     const email = dto.loginId.trim().toLowerCase();
 
     const matches = await this.prisma.user.findMany({
@@ -116,8 +122,22 @@ export class AuthService {
       role: user.role,
     };
 
-    const accessToken = await this.signToken(safeUser);
-    return { accessToken, user: safeUser };
+    return this.issueTokens(safeUser);
+  }
+
+  async refresh(refreshToken: string): Promise<AuthTokens> {
+    let payload: JwtPayload;
+    try {
+      payload = await this.jwtService.verifyAsync<JwtPayload>(refreshToken);
+    } catch {
+      throw new UnauthorizedException('유효하지 않은 refresh token입니다.');
+    }
+    if (payload.type !== 'refresh') {
+      throw new UnauthorizedException('유효하지 않은 refresh token입니다.');
+    }
+
+    const user = await this.getMe(payload.sub);
+    return this.issueTokens(user);
   }
 
   async getMe(userId: string): Promise<AuthUser> {
@@ -140,8 +160,8 @@ export class AuthService {
     return user;
   }
 
-  private async signToken(user: AuthUser): Promise<string> {
-    const payload: JwtPayload = {
+  private async issueTokens(user: AuthUser): Promise<AuthTokens> {
+    const base = {
       sub: user.id,
       email: user.email,
       role: user.role,
@@ -149,7 +169,23 @@ export class AuthService {
       slackMemberId: user.slackMemberId,
     };
 
-    const expiresIn = this.configService.get<string>('JWT_EXPIRES_IN', '1h');
-    return this.jwtService.signAsync(payload, { expiresIn });
+    const accessExpiresIn = this.configService.get<string>('JWT_EXPIRES_IN', '1h');
+    const refreshExpiresIn = this.configService.get<string>(
+      'JWT_REFRESH_EXPIRES_IN',
+      '7d',
+    );
+
+    const [accessToken, refreshToken] = await Promise.all([
+      this.jwtService.signAsync(
+        { ...base, type: 'access' as const },
+        { expiresIn: accessExpiresIn },
+      ),
+      this.jwtService.signAsync(
+        { ...base, type: 'refresh' as const },
+        { expiresIn: refreshExpiresIn },
+      ),
+    ]);
+
+    return { accessToken, refreshToken, user };
   }
 }

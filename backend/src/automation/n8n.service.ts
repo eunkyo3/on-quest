@@ -23,7 +23,9 @@ function stableStringify(value: unknown): string {
 export type N8nEventType =
   | 'quest.created'
   | 'quest.proof_uploaded'
-  | 'quest.reviewed';
+  | 'quest.reviewed'
+  | 'quest.deadline_soon'
+  | 'quest.deadline_overdue';
 
 export interface N8nWebhookPayload<T = Record<string, unknown>> {
   event: N8nEventType;

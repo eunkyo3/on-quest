@@ -2,17 +2,25 @@ import { useEffect, useState } from 'react';
 import { ProgressDashboard } from '../components/ProgressDashboard';
 import { QuestList } from '../components/QuestList';
 import { useQuestStore } from '../store/questStore';
+import { QuestStatus, QUEST_STATUS_LABEL } from '../types/quest';
 
 type Tab = 'quests' | 'stats';
 
 export default function EmployeeDashboard() {
   const [tab, setTab] = useState<Tab>('quests');
-  const { quests, stats, loading, error, fetchQuests, fetchStats } = useQuestStore();
+  const [statusFilter, setStatusFilter] = useState<string>('');
+  const { quests, page, totalPages, total, stats, loading, error, fetchQuests, fetchStats } =
+    useQuestStore();
 
   useEffect(() => {
-    void fetchQuests();
     void fetchStats();
-  }, [fetchQuests, fetchStats]);
+  }, [fetchStats]);
+
+  useEffect(() => {
+    const status =
+      statusFilter === '' ? undefined : (Number(statusFilter) as QuestStatus);
+    void fetchQuests({ page: 1, status });
+  }, [statusFilter, fetchQuests]);
 
   return (
     <div>
@@ -38,18 +46,57 @@ export default function EmployeeDashboard() {
       </div>
 
       {tab === 'stats' ? (
-        <ProgressDashboard stats={stats} title="📊 내 퀘스트 통계" />
+        <ProgressDashboard stats={stats} />
       ) : (
         <>
+          <section className="card filter-bar" style={{ marginTop: '1rem' }}>
+            <label htmlFor="emp-status-filter">상태 필터</label>
+            <select
+              id="emp-status-filter"
+              value={statusFilter}
+              onChange={(e) => setStatusFilter(e.target.value)}
+            >
+              <option value="">전체</option>
+              {(Object.values(QuestStatus).filter((v) => typeof v === 'number') as QuestStatus[]).map(
+                (s) => (
+                  <option key={s} value={s}>
+                    {QUEST_STATUS_LABEL[s]}
+                  </option>
+                ),
+              )}
+            </select>
+            <p className="text-muted" style={{ margin: '0.5rem 0 0' }}>
+              총 {total}건 · {page}/{totalPages || 1} 페이지
+            </p>
+            <div className="quest-actions" style={{ marginTop: '0.5rem' }}>
+              <button
+                type="button"
+                className="ghost"
+                disabled={page <= 1 || loading}
+                onClick={() => void fetchQuests({ page: page - 1 })}
+              >
+                이전
+              </button>
+              <button
+                type="button"
+                className="ghost"
+                disabled={page >= totalPages || loading}
+                onClick={() => void fetchQuests({ page: page + 1 })}
+              >
+                다음
+              </button>
+            </div>
+          </section>
+
           {error && <div className="feedback">⚠ {error}</div>}
-          <h2 className="section-title" style={{ marginTop: 0 }}>🗂 배정된 퀘스트</h2>
           {loading ? (
             <div className="empty">불러오는 중…</div>
           ) : (
             <QuestList
               quests={quests}
               mode="employee"
-              emptyText="아직 배정된 퀘스트가 없어요. 관리자에게 요청해보세요!"
+              detailBasePath="/employee/quests"
+              emptyText="배정된 퀘스트가 없습니다."
             />
           )}
         </>

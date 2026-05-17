@@ -29,3 +29,9 @@ Thumbs.db
 # coverage
 coverage/
 **/coverage/
+
+# doc (로컬 전용 — 원격 저장소에 올리지 않음)
+DESIGN_RATIONALE.md
+
+# doc
+DESIGN_RATIONALE.md

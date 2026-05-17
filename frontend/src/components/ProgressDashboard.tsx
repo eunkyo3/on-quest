@@ -27,7 +27,7 @@ export function ProgressDashboard({ stats, title = '📊 나의 퀘스트 달성
         <div className="stat-grid" style={{ marginTop: '1rem' }}>
           <Stat label="전체" value={s.total} />
           <Stat label="완료" value={s.completed} color="var(--success)" />
-          <Stat label="진행중" value={s.inProgress} color="var(--info)" />
+          <Stat label="검토 대기" value={s.inProgress} color="var(--info)" />
           <Stat label="대기" value={s.pending} color="var(--text-muted)" />
           <Stat label="반려" value={s.rejected} color="var(--danger)" />
         </div>

@@ -1,7 +1,7 @@
 /**
  * 퀘스트 상태 코드 (설계명세서 §클래스다이어그램 기준)
  * - 0: 대기    → 관리자가 생성만 하고 아직 진행되지 않음
- * - 1: 진행중  → 신입이 수락/착수한 상태
+ * - 1: 검토 대기(IN_PROGRESS) → 증빙 제출 후 관리자 검토 대기 (UI 라벨; enum명은 명세·DB 호환)
  * - 2: 완료    → 관리자 검토 후 승인된 상태
  * - 3: 반려    → 관리자 검토 결과 보완 요청된 상태
  */
@@ -14,7 +14,7 @@ export enum QuestStatus {
 
 export const QUEST_STATUS_LABEL: Record<QuestStatus, string> = {
   [QuestStatus.PENDING]: '대기',
-  [QuestStatus.IN_PROGRESS]: '진행중',
+  [QuestStatus.IN_PROGRESS]: '검토 대기',
   [QuestStatus.COMPLETED]: '완료',
   [QuestStatus.REJECTED]: '반려',
 };

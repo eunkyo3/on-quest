@@ -46,7 +46,7 @@
     {
       "parameters": {
         "channel": "#onboarding",
-        "text": "=🎯 새 퀘스트가 생성되었습니다!\n• 제목: {{ $json.data.title }}\n• 마감: {{ $json.data.deadline }}\n• 담당: <@{{ $json.data.assigneeId }}>\n• 발행: <@{{ $json.data.publisherSlackMemberId }}>",
+        "text": "=🎯 새 퀘스트가 생성되었습니다!\n• 제목: {{ $json.data.title }}\n• 마감: {{ $json.data.deadlineDisplay }}\n• 담당: <@{{ $json.data.assigneeId }}>\n• 발행: <@{{ $json.data.publisherSlackMemberId }}>",
         "otherOptions": {}
       },
       "id": "slack-created",
@@ -59,7 +59,7 @@
     {
       "parameters": {
         "channel": "#onboarding",
-        "text": "=📎 증빙 자료가 제출되었습니다!\n<@{{ $json.data.publisherSlackMemberId }}> 담당 퀘스트에 제출이 들어왔습니다.\n• 퀘스트: {{ $json.data.title }}\n• 파일: {{ $json.data.fileName }}\n• 제출자: <@{{ $json.data.assigneeId }}>"
+        "text": "=📎 증빙 자료가 제출되었습니다!\n<@{{ $json.data.publisherSlackMemberId }}> 담당 퀘스트에 제출이 들어왔습니다.\n• 퀘스트: {{ $json.data.title }}\n• 파일: {{ $json.data.proofUrl ? '<' + $json.data.proofUrl + '|' + $json.data.fileName + '>' : $json.data.fileName }}\n• 제출자: <@{{ $json.data.assigneeId }}>{{ $json.data.submissionNote ? '\\n• 추가 설명: ' + $json.data.submissionNote : '' }}"
       },
       "id": "slack-proof",
       "name": "Slack — Proof Uploaded",

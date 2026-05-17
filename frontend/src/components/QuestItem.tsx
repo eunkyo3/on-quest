@@ -7,6 +7,7 @@ import {
   QuestStatus,
   type Quest,
 } from '../types/quest';
+import { formatDateTimeToMinute } from '../utils/formatDateTime';
 
 interface Props {
   quest: Quest;
@@ -93,7 +94,7 @@ export function QuestItem({ quest, mode }: Props) {
           <h3>{quest.title}</h3>
           <div className="meta">
             <span>ID: <code>{quest.id}</code></span>
-            <span>마감: {deadline.toLocaleString('ko-KR')}</span>
+            <span>마감: {formatDateTimeToMinute(quest.deadline)}</span>
             {overdue && <span style={{ color: 'var(--danger)' }}>⚠ 기한 경과</span>}
           </div>
         </div>

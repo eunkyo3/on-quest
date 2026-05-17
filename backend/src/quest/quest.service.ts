@@ -2,10 +2,18 @@ import {
   BadRequestException,
   ForbiddenException,
   Injectable,
+  Logger,
   NotFoundException,
+  UnauthorizedException,
 } from '@nestjs/common';
+import { ConfigService } from '@nestjs/config';
 import { PrismaService } from '../prisma/prisma.service';
+import { formatDateTimeToMinute } from '../common/utils/format-datetime';
 import { generateQuestId } from '../common/utils/id-generator';
+import {
+  createProofShareToken,
+  verifyProofShareToken,
+} from '../common/utils/proof-share-token';
 import { N8nService } from '../automation/n8n.service';
 import { CreateQuestDto } from './dto/create-quest.dto';
 import { ReviewQuestDto } from './dto/review-quest.dto';
@@ -98,10 +106,40 @@ export interface AssignableEmployee {
 
 @Injectable()
 export class QuestService {
+  private readonly logger = new Logger(QuestService.name);
+  private readonly apiPublicUrl: string;
+  private readonly proofShareSecret: string;
+  private readonly proofShareTtlSeconds: number;
+
   constructor(
     private readonly prisma: PrismaService,
     private readonly n8n: N8nService,
-  ) {}
+    private readonly config: ConfigService,
+  ) {
+    const base = (this.config.get<string>('API_PUBLIC_URL') ?? '').replace(
+      /\/$/,
+      '',
+    );
+    this.apiPublicUrl = base || 'http://localhost:3000/api';
+    this.proofShareSecret =
+      this.config.get<string>('PROOF_SHARE_SECRET') ??
+      this.config.get<string>('N8N_WEBHOOK_SECRET') ??
+      '';
+    this.proofShareTtlSeconds = Number(
+      this.config.get<string>('PROOF_SHARE_TTL_SECONDS') ?? 7 * 24 * 3600,
+    );
+
+    if (!this.config.get<string>('API_PUBLIC_URL')) {
+      this.logger.warn(
+        'API_PUBLIC_URL 미설정 — Slack 증빙 링크는 http://localhost:3000/api 기준으로 생성됩니다.',
+      );
+    }
+    if (!this.proofShareSecret) {
+      this.logger.warn(
+        'PROOF_SHARE_SECRET / N8N_WEBHOOK_SECRET 미설정 — Slack 증빙 공유 링크가 생성되지 않습니다.',
+      );
+    }
+  }
 
   async createQuest(dto: CreateQuestDto, publisher: QuestJwtUser): Promise<QuestSummary> {
     if (publisher.role !== 'admin') {
@@ -146,6 +184,7 @@ export class QuestService {
       id: saved.id,
       title: saved.title,
       deadline: saved.deadline.toISOString(),
+      deadlineDisplay: formatDateTimeToMinute(saved.deadline),
       assigneeId: saved.assigneeId,
       publisherSlackMemberId: saved.publisherSlackMemberId,
     });
@@ -336,10 +375,14 @@ export class QuestService {
       select: questListSelect,
     });
 
+    const proofUrl = this.buildProofShareUrl(saved.id);
+
     this.n8n.triggerWebhook('quest.proof_uploaded', {
       id: saved.id,
       title: saved.title,
       fileName: saved.proofFileName,
+      proofMimeType: saved.proofMimeType,
+      proofUrl,
       assigneeId: saved.assigneeId,
       publisherSlackMemberId: saved.publisherSlackMemberId,
       submissionNote: saved.submissionNote,
@@ -396,6 +439,29 @@ export class QuestService {
     return this.toSummary(saved);
   }
 
+  buildProofShareUrl(questId: string): string | null {
+    if (!this.proofShareSecret) return null;
+    const token = createProofShareToken(
+      questId,
+      this.proofShareSecret,
+      this.proofShareTtlSeconds,
+    );
+    return `${this.apiPublicUrl}/quests/${encodeURIComponent(questId)}/proof/share?token=${encodeURIComponent(token)}`;
+  }
+
+  async getProofViaShareToken(
+    questId: string,
+    token: string,
+  ): Promise<{ buffer: Buffer; mimeType: string; fileName: string } | null> {
+    if (!this.proofShareSecret) {
+      throw new UnauthorizedException('증빙 공유가 설정되지 않았습니다.');
+    }
+    if (!verifyProofShareToken(token, questId, this.proofShareSecret)) {
+      throw new UnauthorizedException('만료되었거나 유효하지 않은 공유 링크입니다.');
+    }
+    return this.loadProofBlob(questId);
+  }
+
   async getProof(
     id: string,
     user: QuestJwtUser,
@@ -417,7 +483,21 @@ export class QuestService {
       user,
     );
 
-    if (!quest.proofData) return null;
+    return this.loadProofBlob(id);
+  }
+
+  private async loadProofBlob(
+    id: string,
+  ): Promise<{ buffer: Buffer; mimeType: string; fileName: string } | null> {
+    const quest = await this.prisma.quest.findUnique({
+      where: { id },
+      select: {
+        proofData: true,
+        proofMimeType: true,
+        proofFileName: true,
+      },
+    });
+    if (!quest?.proofData) return null;
 
     const buffer = Buffer.isBuffer(quest.proofData)
       ? quest.proofData

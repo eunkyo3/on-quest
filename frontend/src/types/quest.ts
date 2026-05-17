@@ -7,7 +7,7 @@ export enum QuestStatus {
 
 export const QUEST_STATUS_LABEL: Record<QuestStatus, string> = {
   [QuestStatus.PENDING]: '대기',
-  [QuestStatus.IN_PROGRESS]: '진행중',
+  [QuestStatus.IN_PROGRESS]: '검토 대기',
   [QuestStatus.COMPLETED]: '완료',
   [QuestStatus.REJECTED]: '반려',
 };

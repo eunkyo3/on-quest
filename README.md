@@ -7,8 +7,6 @@
 - **증빙 저장**: PostgreSQL `bytea` BLOB (최대 10MB/건)
 - **Slack 연동**: 퀘스트 생성 · 증빙 제출 · 검토 결과 3종 이벤트
 
-설계 선택 근거·면접 대응용 Q&A는 [DESIGN_RATIONALE.md](./DESIGN_RATIONALE.md)를 참고하세요.
-
 ---
 
 ## 목차

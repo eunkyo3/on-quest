@@ -9,6 +9,7 @@ import * as bcrypt from 'bcryptjs';
 import { PrismaService } from '../prisma/prisma.service';
 import { SignInDto } from './dto/sign-in.dto';
 import { SignUpDto } from './dto/sign-up.dto';
+import { UpdateProfileDto } from './dto/update-profile.dto';
 
 export interface AuthUser {
   id: string;
@@ -22,6 +23,7 @@ export interface AuthUser {
 interface JwtPayload {
   sub: string;
   email: string;
+  name: string;
   role: string;
   companyCode: string;
   slackMemberId: string;
@@ -140,6 +142,68 @@ export class AuthService {
     return this.issueTokens(user);
   }
 
+  async updateProfile(userId: string, dto: UpdateProfileDto): Promise<AuthUser> {
+    const existing = await this.prisma.user.findUnique({
+      where: { id: userId },
+    });
+    if (!existing) {
+      throw new UnauthorizedException('인증 정보를 확인할 수 없습니다.');
+    }
+
+    if (!dto.name && !dto.slackMemberId && !dto.newPassword) {
+      throw new BadRequestException('수정할 항목을 하나 이상 입력하세요.');
+    }
+
+    if (dto.newPassword) {
+      if (!dto.currentPassword) {
+        throw new BadRequestException('비밀번호 변경 시 현재 비밀번호가 필요합니다.');
+      }
+      const valid = await bcrypt.compare(dto.currentPassword, existing.passwordHash);
+      if (!valid) {
+        throw new UnauthorizedException('현재 비밀번호가 올바르지 않습니다.');
+      }
+    }
+
+    if (dto.slackMemberId && dto.slackMemberId !== existing.slackMemberId) {
+      const clash = await this.prisma.user.findFirst({
+        where: {
+          companyCode: existing.companyCode,
+          slackMemberId: dto.slackMemberId,
+          NOT: { id: userId },
+        },
+        select: { id: true },
+      });
+      if (clash) {
+        throw new BadRequestException(
+          '같은 회사코드에 이미 사용 중인 Slack 멤버 ID입니다.',
+        );
+      }
+    }
+
+    const user = await this.prisma.user.update({
+      where: { id: userId },
+      data: {
+        ...(dto.name !== undefined ? { name: dto.name.trim() } : {}),
+        ...(dto.slackMemberId !== undefined
+          ? { slackMemberId: dto.slackMemberId.trim() }
+          : {}),
+        ...(dto.newPassword
+          ? { passwordHash: await bcrypt.hash(dto.newPassword, 10) }
+          : {}),
+      },
+      select: {
+        id: true,
+        email: true,
+        name: true,
+        slackMemberId: true,
+        companyCode: true,
+        role: true,
+      },
+    });
+
+    return user;
+  }
+
   async getMe(userId: string): Promise<AuthUser> {
     const user = await this.prisma.user.findUnique({
       where: { id: userId },
@@ -164,6 +228,7 @@ export class AuthService {
     const base = {
       sub: user.id,
       email: user.email,
+      name: user.name,
       role: user.role,
       companyCode: user.companyCode,
       slackMemberId: user.slackMemberId,

@@ -48,7 +48,7 @@
     {
       "parameters": {
         "channel": "#onboarding",
-        "text": "=🎯 새 퀘스트가 생성되었습니다!\n• 제목: {{ $json.data.title }}\n• 마감: {{ $json.data.deadlineDisplay }}\n• 담당: <@{{ $json.data.assigneeId }}>\n• 발행: <@{{ $json.data.publisherSlackMemberId }}>",
+        "text": "=🎯 새 퀘스트가 생성되었습니다!\n• 제목: {{ $json.data.title }}\n• 마감: {{ $json.data.deadlineDisplay }}\n• 담당: {{ $json.data.assigneeName || $json.data.assigneeId }}\n• 발행: {{ $json.data.publisherName || $json.data.publisherSlackMemberId }}",
         "otherOptions": {}
       },
       "id": "slack-created",
@@ -61,7 +61,7 @@
     {
       "parameters": {
         "channel": "#onboarding",
-        "text": "=📎 증빙 자료가 제출되었습니다!\n<@{{ $json.data.publisherSlackMemberId }}> 담당 퀘스트에 제출이 들어왔습니다.\n• 퀘스트: {{ $json.data.title }}\n• 파일: {{ $json.data.proofUrl ? '<' + $json.data.proofUrl + '|' + $json.data.fileName + '>' : $json.data.fileName }}\n• 제출자: <@{{ $json.data.assigneeId }}>{{ $json.data.submissionNote ? '\\n• 추가 설명: ' + $json.data.submissionNote : '' }}"
+        "text": "=📎 증빙 자료가 제출되었습니다!\n{{ $json.data.publisherName || '관리자' }} 담당 퀘스트에 제출이 들어왔습니다.\n• 퀘스트: {{ $json.data.title }}\n• 파일: {{ $json.data.proofUrl ? '<' + $json.data.proofUrl + '|' + $json.data.fileName + '>' : $json.data.fileName }}\n• 제출자: {{ $json.data.assigneeName || $json.data.assigneeId }}{{ $json.data.submissionNote ? '\\n• 추가 설명: ' + $json.data.submissionNote : '' }}"
       },
       "id": "slack-proof",
       "name": "Slack — Proof Uploaded",
@@ -72,7 +72,7 @@
     {
       "parameters": {
         "channel": "#onboarding",
-        "text": "={{ $json.data.status === 3 ? '✅ 퀘스트 완료 승인!' : '↩ 퀘스트 반려' }}\n• 제목: {{ $json.data.title }}\n• 피드백: {{ $json.data.feedback || '(없음)' }}\n• 대상자: <@{{ $json.data.assigneeId }}>{{ $json.data.reviewerId ? '\\n• 검토자: <@' + $json.data.reviewerId + '>' : '' }}"
+        "text": "={{ $json.data.status === 3 ? '✅ 퀘스트 완료 승인!' : '↩ 퀘스트 반려' }}\n• 제목: {{ $json.data.title }}\n• 피드백: {{ $json.data.feedback || '(없음)' }}\n• 대상자: {{ $json.data.assigneeName || $json.data.assigneeId }}{{ ($json.data.reviewerName || $json.data.reviewerId) ? '\\n• 검토자: ' + ($json.data.reviewerName || $json.data.reviewerId) : '' }}"
       },
       "id": "slack-reviewed",
       "name": "Slack — Reviewed",
@@ -83,7 +83,7 @@
     {
       "parameters": {
         "channel": "#onboarding",
-        "text": "=⏰ 마감이 24시간 이내입니다!\n• 퀘스트: {{ $json.data.title }}\n• 마감: {{ $json.data.deadlineDisplay }}\n• 담당: <@{{ $json.data.assigneeId }}>"
+        "text": "=⏰ 마감이 24시간 이내입니다!\n• 퀘스트: {{ $json.data.title }}\n• 마감: {{ $json.data.deadlineDisplay }}\n• 담당: {{ $json.data.assigneeName || $json.data.assigneeId }}"
       },
       "id": "slack-deadline-soon",
       "name": "Slack — Deadline Soon",
@@ -94,7 +94,7 @@
     {
       "parameters": {
         "channel": "#onboarding",
-        "text": "=🚨 마감 기한이 지났습니다!\n• 퀘스트: {{ $json.data.title }}\n• 마감: {{ $json.data.deadlineDisplay }}\n• 담당: <@{{ $json.data.assigneeId }}>"
+        "text": "=🚨 마감 기한이 지났습니다!\n• 퀘스트: {{ $json.data.title }}\n• 마감: {{ $json.data.deadlineDisplay }}\n• 담당: {{ $json.data.assigneeName || $json.data.assigneeId }}"
       },
       "id": "slack-deadline-overdue",
       "name": "Slack — Deadline Overdue",

@@ -40,16 +40,23 @@ export class QuestDeadlineScheduler {
         deadline: true,
         assigneeId: true,
         publisherSlackMemberId: true,
+        companyCode: true,
       },
     });
 
     for (const q of soonCandidates) {
+      const names = await this.resolveNames(q.companyCode, [
+        q.assigneeId,
+        q.publisherSlackMemberId,
+      ]);
       this.n8n.triggerWebhook('quest.deadline_soon', {
         id: q.id,
         title: q.title,
         deadlineDisplay: formatDateTimeToMinute(q.deadline),
         assigneeId: q.assigneeId,
+        assigneeName: names.get(q.assigneeId) ?? null,
         publisherSlackMemberId: q.publisherSlackMemberId,
+        publisherName: names.get(q.publisherSlackMemberId) ?? null,
       });
       await this.prisma.quest.update({
         where: { id: q.id },
@@ -69,16 +76,23 @@ export class QuestDeadlineScheduler {
         deadline: true,
         assigneeId: true,
         publisherSlackMemberId: true,
+        companyCode: true,
       },
     });
 
     for (const q of overdueCandidates) {
+      const names = await this.resolveNames(q.companyCode, [
+        q.assigneeId,
+        q.publisherSlackMemberId,
+      ]);
       this.n8n.triggerWebhook('quest.deadline_overdue', {
         id: q.id,
         title: q.title,
         deadlineDisplay: formatDateTimeToMinute(q.deadline),
         assigneeId: q.assigneeId,
+        assigneeName: names.get(q.assigneeId) ?? null,
         publisherSlackMemberId: q.publisherSlackMemberId,
+        publisherName: names.get(q.publisherSlackMemberId) ?? null,
       });
       await this.prisma.quest.update({
         where: { id: q.id },
@@ -91,5 +105,18 @@ export class QuestDeadlineScheduler {
         `Deadline alerts: soon=${soonCandidates.length}, overdue=${overdueCandidates.length}`,
       );
     }
+  }
+
+  private async resolveNames(
+    companyCode: string,
+    slackIds: string[],
+  ): Promise<Map<string, string>> {
+    const ids = [...new Set(slackIds.filter(Boolean))];
+    if (ids.length === 0) return new Map();
+    const users = await this.prisma.user.findMany({
+      where: { companyCode, slackMemberId: { in: ids } },
+      select: { slackMemberId: true, name: true },
+    });
+    return new Map(users.map((u) => [u.slackMemberId, u.name]));
   }
 }

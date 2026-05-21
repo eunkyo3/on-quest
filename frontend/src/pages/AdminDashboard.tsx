@@ -1,15 +1,29 @@
 import { useEffect, useMemo, useState } from 'react';
 import { CreateQuestForm } from '../components/CreateQuestForm';
+import { Modal } from '../components/Modal';
 import { ProgressDashboard } from '../components/ProgressDashboard';
 import { QuestList } from '../components/QuestList';
+import { StatsQuestListSection } from '../components/StatsQuestListSection';
 import { useQuestStore } from '../store/questStore';
-import { QuestStatus, QUEST_STATUS_LABEL } from '../types/quest';
+import {
+  QuestStatus,
+  QUEST_STATUS_LABEL,
+  type AssigneeQuestStats,
+} from '../types/quest';
+import {
+  STATS_FILTER_LABEL,
+  assigneeStatsToQuestStats,
+  type StatsFilterKey,
+} from '../utils/statsFilter';
 
 type Tab = 'work' | 'stats';
 
 export default function AdminDashboard() {
   const [tab, setTab] = useState<Tab>('work');
   const [statusFilter, setStatusFilter] = useState<string>('');
+  const [statsModalFilter, setStatsModalFilter] = useState<StatsFilterKey | null>(null);
+  const [assigneeModal, setAssigneeModal] = useState<AssigneeQuestStats | null>(null);
+  const [assigneeModalFilter, setAssigneeModalFilter] = useState<StatsFilterKey | null>(null);
   const {
     quests,
     page,
@@ -44,6 +58,15 @@ export default function AdminDashboard() {
     [quests],
   );
 
+  const openCompanyStats = (key: StatsFilterKey) => {
+    setStatsModalFilter(key);
+  };
+
+  const openAssigneeDetail = (row: AssigneeQuestStats) => {
+    setAssigneeModal(row);
+    setAssigneeModalFilter(null);
+  };
+
   return (
     <div className="grid" style={{ gap: '1.5rem' }}>
       <div className="tab-row" role="tablist" aria-label="관리자 메뉴">
@@ -69,7 +92,11 @@ export default function AdminDashboard() {
 
       {tab === 'stats' ? (
         <div className="grid" style={{ gap: '1.5rem' }}>
-          <ProgressDashboard stats={stats} title="📊 전사 발행 퀘스트 현황" />
+          <ProgressDashboard
+            stats={stats}
+            title="📊 전사 발행 퀘스트 현황"
+            onFilterClick={openCompanyStats}
+          />
           <section>
             <h2 className="section-title">👥 담당자별 상세 통계</h2>
             {assigneeStats.length === 0 ? (
@@ -88,6 +115,7 @@ export default function AdminDashboard() {
                       <th>대기</th>
                       <th>반려</th>
                       <th>달성률</th>
+                      <th />
                     </tr>
                   </thead>
                   <tbody>
@@ -102,6 +130,15 @@ export default function AdminDashboard() {
                         <td>{row.pending}</td>
                         <td>{row.rejected}</td>
                         <td>{row.completionRate}%</td>
+                        <td>
+                          <button
+                            type="button"
+                            className="ghost"
+                            onClick={() => openAssigneeDetail(row)}
+                          >
+                            상세
+                          </button>
+                        </td>
                       </tr>
                     ))}
                   </tbody>
@@ -179,6 +216,58 @@ export default function AdminDashboard() {
           </section>
         </>
       )}
+
+      <Modal
+        open={statsModalFilter !== null}
+        title={
+          statsModalFilter
+            ? `전사 · ${STATS_FILTER_LABEL[statsModalFilter]}`
+            : '퀘스트 목록'
+        }
+        onClose={() => setStatsModalFilter(null)}
+        wide
+      >
+        {statsModalFilter && (
+          <StatsQuestListSection
+            filter={statsModalFilter}
+            mode="admin"
+            detailBasePath="/admin/quests"
+          />
+        )}
+      </Modal>
+
+      <Modal
+        open={assigneeModal !== null}
+        title={
+          assigneeModal
+            ? `${assigneeModal.assigneeName ?? assigneeModal.assigneeId} · 상세 통계`
+            : '담당자 상세'
+        }
+        onClose={() => {
+          setAssigneeModal(null);
+          setAssigneeModalFilter(null);
+        }}
+        wide
+      >
+        {assigneeModal && (
+          <div className="grid" style={{ gap: '1rem' }}>
+            <ProgressDashboard
+              stats={assigneeStatsToQuestStats(assigneeModal)}
+              title={`${assigneeModal.assigneeName ?? '담당자'} 퀘스트 현황`}
+              activeFilter={assigneeModalFilter}
+              onFilterClick={(key) => setAssigneeModalFilter(key)}
+            />
+            {assigneeModalFilter && (
+              <StatsQuestListSection
+                filter={assigneeModalFilter}
+                assigneeId={assigneeModal.assigneeId}
+                mode="admin"
+                detailBasePath="/admin/quests"
+              />
+            )}
+          </div>
+        )}
+      </Modal>
     </div>
   );
 }

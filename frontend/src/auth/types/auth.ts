@@ -26,3 +26,10 @@ export interface SignInPayload {
   loginId: string;
   password: string;
 }
+
+export interface UpdateProfilePayload {
+  name?: string;
+  slackMemberId?: string;
+  newPassword?: string;
+  currentPassword?: string;
+}

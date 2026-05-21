@@ -8,6 +8,7 @@ import {
   UnauthorizedException,
 } from '@nestjs/common';
 import type { Response } from 'express';
+import { buildContentDisposition } from '../common/utils/content-disposition';
 import { QuestService } from './quest.service';
 
 /** Slack 등 외부에서 JWT 없이 서명 토큰으로 증빙을 조회 */
@@ -34,9 +35,7 @@ export class QuestProofShareController {
     res.setHeader('Content-Type', proof.mimeType);
     res.setHeader(
       'Content-Disposition',
-      isImage
-        ? `inline; filename="${encodeURIComponent(proof.fileName)}"`
-        : `attachment; filename="${encodeURIComponent(proof.fileName)}"`,
+      buildContentDisposition(isImage ? 'inline' : 'attachment', proof.fileName),
     );
     res.send(proof.buffer);
   }

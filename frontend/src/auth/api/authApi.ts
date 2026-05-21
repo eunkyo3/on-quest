@@ -1,5 +1,10 @@
 import { api } from '../../api/questApi';
-import type { AuthResponse, SignInPayload, SignUpPayload } from '../types/auth';
+import type {
+  AuthResponse,
+  SignInPayload,
+  SignUpPayload,
+  UpdateProfilePayload,
+} from '../types/auth';
 
 export const authApi = {
   signup: async (payload: SignUpPayload): Promise<AuthResponse> => {
@@ -14,6 +19,11 @@ export const authApi = {
 
   me: async () => {
     const { data } = await api.get<AuthResponse['user']>('/auth/me');
+    return data;
+  },
+
+  updateProfile: async (payload: UpdateProfilePayload): Promise<AuthResponse['user']> => {
+    const { data } = await api.patch<AuthResponse['user']>('/auth/me', payload);
     return data;
   },
 };

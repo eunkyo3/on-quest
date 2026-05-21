@@ -1,11 +1,32 @@
 import type { QuestStats } from '../types/quest';
+import {
+  STATS_FILTER_KEYS,
+  STATS_FILTER_LABEL,
+  countForFilter,
+  type StatsFilterKey,
+} from '../utils/statsFilter';
 
 interface Props {
   stats: QuestStats | null;
   title?: string;
+  activeFilter?: StatsFilterKey | null;
+  onFilterClick?: (filter: StatsFilterKey) => void;
 }
 
-export function ProgressDashboard({ stats, title = '📊 나의 퀘스트 달성률' }: Props) {
+const STAT_COLORS: Partial<Record<StatsFilterKey, string>> = {
+  completed: 'var(--success)',
+  submitted: 'var(--info)',
+  started: 'var(--warning)',
+  pending: 'var(--text-muted)',
+  rejected: 'var(--danger)',
+};
+
+export function ProgressDashboard({
+  stats,
+  title = '📊 나의 퀘스트 달성률',
+  activeFilter,
+  onFilterClick,
+}: Props) {
   const s = stats ?? {
     total: 0,
     pending: 0,
@@ -15,6 +36,8 @@ export function ProgressDashboard({ stats, title = '📊 나의 퀘스트 달성
     rejected: 0,
     completionRate: 0,
   };
+
+  const interactive = !!onFilterClick;
 
   return (
     <section>
@@ -31,21 +54,51 @@ export function ProgressDashboard({ stats, title = '📊 나의 퀘스트 달성
           <div className="label">{s.completionRate}%</div>
         </div>
         <div className="stat-grid" style={{ marginTop: '1rem' }}>
-          <Stat label="전체" value={s.total} />
-          <Stat label="완료" value={s.completed} color="var(--success)" />
-          <Stat label="검토 대기" value={s.submitted} color="var(--info)" />
-          <Stat label="착수" value={s.started} color="var(--warning)" />
-          <Stat label="대기" value={s.pending} color="var(--text-muted)" />
-          <Stat label="반려" value={s.rejected} color="var(--danger)" />
+          {STATS_FILTER_KEYS.map((key) => (
+            <Stat
+              key={key}
+              label={STATS_FILTER_LABEL[key]}
+              value={countForFilter(s, key)}
+              color={STAT_COLORS[key]}
+              active={activeFilter === key}
+              interactive={interactive}
+              onClick={onFilterClick ? () => onFilterClick(key) : undefined}
+            />
+          ))}
         </div>
       </div>
     </section>
   );
 }
 
-function Stat({ label, value, color }: { label: string; value: number; color?: string }) {
+function Stat({
+  label,
+  value,
+  color,
+  active,
+  interactive,
+  onClick,
+}: {
+  label: string;
+  value: number;
+  color?: string;
+  active?: boolean;
+  interactive?: boolean;
+  onClick?: () => void;
+}) {
+  const className = `stat-card${interactive ? ' stat-card-btn' : ''}${active ? ' stat-card-active' : ''}`;
+
+  if (interactive && onClick) {
+    return (
+      <button type="button" className={className} onClick={onClick}>
+        <div className="label">{label}</div>
+        <div className="value" style={{ color }}>{value}</div>
+      </button>
+    );
+  }
+
   return (
-    <div className="stat-card">
+    <div className={className}>
       <div className="label">{label}</div>
       <div className="value" style={{ color }}>{value}</div>
     </div>

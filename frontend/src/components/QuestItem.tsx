@@ -11,6 +11,7 @@ import {
   type Quest,
 } from '../types/quest';
 import { formatDateTimeToMinute } from '../utils/formatDateTime';
+import { ProofPreviewModal } from './ProofPreviewModal';
 
 interface Props {
   quest: Quest;
@@ -29,6 +30,8 @@ export function QuestItem({ quest, mode, detailBasePath }: Props) {
   const [draftFile, setDraftFile] = useState<File | null>(null);
   const [previewUrl, setPreviewUrl] = useState<string | null>(null);
   const [dragOver, setDragOver] = useState(false);
+  const [proofModalUrl, setProofModalUrl] = useState<string | null>(null);
+  const [proofModalOpen, setProofModalOpen] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const { uploadProof, reviewQuest, startQuest } = useQuestStore();
   const proofAttached = hasProofFile(quest);
@@ -42,8 +45,9 @@ export function QuestItem({ quest, mode, detailBasePath }: Props) {
   useEffect(() => {
     return () => {
       if (previewUrl) URL.revokeObjectURL(previewUrl);
+      if (proofModalUrl) URL.revokeObjectURL(proofModalUrl);
     };
-  }, [previewUrl]);
+  }, [previewUrl, proofModalUrl]);
 
   useEffect(() => {
     if (!draftFile?.type.startsWith('image/')) {
@@ -122,28 +126,30 @@ export function QuestItem({ quest, mode, detailBasePath }: Props) {
   const handlePreviewProof = async () => {
     try {
       const blob = await questApi.fetchProofBlob(quest.id);
-      const url = URL.createObjectURL(blob);
-      if (quest.proofMimeType?.startsWith('image/')) {
-        window.open(url, '_blank', 'noopener,noreferrer');
-        window.setTimeout(() => URL.revokeObjectURL(url), 60_000);
-      } else {
-        const a = document.createElement('a');
-        a.href = url;
-        a.target = '_blank';
-        a.rel = 'noopener noreferrer';
-        if (quest.proofMimeType === 'application/pdf') {
-          a.click();
-        } else {
-          a.download = quest.proofFileName ?? `proof-${quest.id}`;
-          a.click();
-        }
-        window.setTimeout(() => URL.revokeObjectURL(url), 10_000);
+      const mime = blob.type || quest.proofMimeType || '';
+      if (!mime.startsWith('image/')) {
+        window.alert(
+          '이미지 파일만 미리보기할 수 있습니다. 다른 형식은 다운로드 버튼을 이용해 주세요.',
+        );
+        return;
       }
+      if (proofModalUrl) URL.revokeObjectURL(proofModalUrl);
+      const url = URL.createObjectURL(blob);
+      setProofModalUrl(url);
+      setProofModalOpen(true);
     } catch (err) {
       useToastStore.getState().push(
         err instanceof Error ? err.message : '미리보기 실패',
         'error',
       );
+    }
+  };
+
+  const closeProofModal = () => {
+    setProofModalOpen(false);
+    if (proofModalUrl) {
+      URL.revokeObjectURL(proofModalUrl);
+      setProofModalUrl(null);
     }
   };
 
@@ -155,6 +161,13 @@ export function QuestItem({ quest, mode, detailBasePath }: Props) {
   const submitLabel = quest.status === QuestStatus.REJECTED ? '재제출' : '제출';
 
   return (
+    <>
+    <ProofPreviewModal
+      open={proofModalOpen}
+      imageUrl={proofModalUrl}
+      fileName={quest.proofFileName}
+      onClose={closeProofModal}
+    />
     <article className="quest-item">
       <header>
         <div>
@@ -307,6 +320,7 @@ export function QuestItem({ quest, mode, detailBasePath }: Props) {
         <Link to={`${detailBasePath}/${quest.id}`}>상세 보기 →</Link>
       </p>
     </article>
+    </>
   );
 }
 

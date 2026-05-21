@@ -9,6 +9,7 @@ import { ToastContainer } from './components/ToastContainer';
 import AdminDashboard from './pages/AdminDashboard';
 import EmployeeDashboard from './pages/EmployeeDashboard';
 import QuestDetailPage from './pages/QuestDetailPage';
+import SettingsPage from './auth/pages/SettingsPage';
 
 function homePathForUser(role: string | undefined): string {
   return role === 'admin' ? '/admin' : '/employee';
@@ -27,7 +28,6 @@ export default function App() {
   }
 
   const roleLabel = user?.role === 'admin' ? '관리자' : '사원';
-  const dashboardPath = user ? homePathForUser(user.role) : '/employee';
 
   return (
     <>
@@ -36,8 +36,8 @@ export default function App() {
         <h1>🎮 On-Quest</h1>
         {accessToken && user ? (
           <nav>
-            <NavLink to={dashboardPath} className={({ isActive }) => (isActive ? 'active' : '')} end>
-              대시보드
+            <NavLink to="/settings" className={({ isActive }) => (isActive ? 'active' : '')}>
+              설정
             </NavLink>
             <span className="user-chip">{user.name} ({roleLabel})</span>
             <button type="button" className="ghost" onClick={logout}>
@@ -98,6 +98,16 @@ export default function App() {
               <RoleRoute allowedRole="admin">
                 <QuestDetailPage mode="admin" listPath="/admin" />
               </RoleRoute>
+            )}
+          />
+          <Route
+            path="/settings"
+            element={(
+              accessToken ? (
+                <SettingsPage />
+              ) : (
+                <Navigate to="/login" replace />
+              )
             )}
           />
           <Route

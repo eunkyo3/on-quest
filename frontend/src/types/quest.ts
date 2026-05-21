@@ -54,6 +54,7 @@ export interface QuestListParams {
   page?: number;
   limit?: number;
   status?: QuestStatus;
+  assigneeId?: string;
 }
 
 export interface QuestStats {

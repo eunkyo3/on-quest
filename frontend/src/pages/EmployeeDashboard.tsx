@@ -1,14 +1,17 @@
 import { useEffect, useState } from 'react';
 import { ProgressDashboard } from '../components/ProgressDashboard';
 import { QuestList } from '../components/QuestList';
+import { StatsQuestListSection } from '../components/StatsQuestListSection';
 import { useQuestStore } from '../store/questStore';
 import { QuestStatus, QUEST_STATUS_LABEL } from '../types/quest';
+import type { StatsFilterKey } from '../utils/statsFilter';
 
 type Tab = 'quests' | 'stats';
 
 export default function EmployeeDashboard() {
   const [tab, setTab] = useState<Tab>('quests');
   const [statusFilter, setStatusFilter] = useState<string>('');
+  const [statsFilter, setStatsFilter] = useState<StatsFilterKey | null>(null);
   const { quests, page, totalPages, total, stats, loading, error, fetchQuests, fetchStats } =
     useQuestStore();
 
@@ -46,7 +49,20 @@ export default function EmployeeDashboard() {
       </div>
 
       {tab === 'stats' ? (
-        <ProgressDashboard stats={stats} />
+        <div className="grid" style={{ gap: '1.25rem', marginTop: '1rem' }}>
+          <ProgressDashboard
+            stats={stats}
+            activeFilter={statsFilter}
+            onFilterClick={(key) => setStatsFilter(key)}
+          />
+          {statsFilter && (
+            <StatsQuestListSection
+              filter={statsFilter}
+              mode="employee"
+              detailBasePath="/employee/quests"
+            />
+          )}
+        </div>
       ) : (
         <>
           <section className="card filter-bar" style={{ marginTop: '1rem' }}>

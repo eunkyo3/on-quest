@@ -9,6 +9,7 @@ import {
 import { ConfigService } from '@nestjs/config';
 import { PrismaService } from '../prisma/prisma.service';
 import { formatDateTimeToMinute } from '../common/utils/format-datetime';
+import { buildProofFileName } from '../common/utils/proof-filename';
 import { generateQuestId } from '../common/utils/id-generator';
 import {
   createProofShareToken,
@@ -193,13 +194,21 @@ export class QuestService {
       select: questListSelect,
     });
 
+    const names = await this.resolveNamesBySlackIds(saved.companyCode, [
+      saved.assigneeId,
+      saved.publisherSlackMemberId,
+    ]);
+
     this.n8n.triggerWebhook('quest.created', {
       id: saved.id,
       title: saved.title,
       deadline: saved.deadline.toISOString(),
       deadlineDisplay: formatDateTimeToMinute(saved.deadline),
       assigneeId: saved.assigneeId,
+      assigneeName: names.get(saved.assigneeId) ?? null,
       publisherSlackMemberId: saved.publisherSlackMemberId,
+      publisherName:
+        names.get(saved.publisherSlackMemberId) ?? publisher.name ?? '관리자',
     });
 
     const [enriched] = await this.enrichSummaries([this.toSummary(saved)]);
@@ -239,10 +248,15 @@ export class QuestService {
     const limit = query.limit ?? 20;
     const skip = (page - 1) * limit;
 
+    if (query.assigneeId && user.role !== 'admin') {
+      throw new ForbiddenException('담당자별 조회는 관리자만 가능합니다.');
+    }
+
     const where = {
       ...(user.role === 'admin'
         ? { companyCode: user.companyCode }
         : { companyCode: user.companyCode, assigneeId: user.slackMemberId }),
+      ...(query.assigneeId ? { assigneeId: query.assigneeId } : {}),
       ...(query.status !== undefined ? { status: query.status } : {}),
     };
 
@@ -501,12 +515,18 @@ export class QuestService {
 
     const submissionNote = this.parseSubmissionNote(submissionNoteRaw);
 
+    const proofFileName = buildProofFileName(
+      user.name ?? '사원',
+      quest.title,
+      file.originalname,
+    );
+
     const saved = await this.prisma.quest.update({
       where: { id },
       data: {
         proofData: file.buffer,
         proofMimeType: file.mimetype,
-        proofFileName: file.originalname,
+        proofFileName,
         submissionNote,
         status: QuestStatus.SUBMITTED,
       },
@@ -514,6 +534,10 @@ export class QuestService {
     });
 
     const proofUrl = this.buildProofShareUrl(saved.id);
+    const names = await this.resolveNamesBySlackIds(saved.companyCode, [
+      saved.assigneeId,
+      saved.publisherSlackMemberId,
+    ]);
 
     this.n8n.triggerWebhook('quest.proof_uploaded', {
       id: saved.id,
@@ -522,7 +546,9 @@ export class QuestService {
       proofMimeType: saved.proofMimeType,
       proofUrl,
       assigneeId: saved.assigneeId,
+      assigneeName: names.get(saved.assigneeId) ?? user.name ?? null,
       publisherSlackMemberId: saved.publisherSlackMemberId,
+      publisherName: names.get(saved.publisherSlackMemberId) ?? null,
       submissionNote: saved.submissionNote,
     });
 
@@ -572,14 +598,25 @@ export class QuestService {
       select: questListSelect,
     });
 
+    const names = await this.resolveNamesBySlackIds(saved.companyCode, [
+      saved.reviewerId,
+      saved.assigneeId,
+      saved.publisherSlackMemberId,
+    ]);
+    const reviewerSlack = saved.reviewerId ?? user.slackMemberId;
+
     this.n8n.triggerWebhook('quest.reviewed', {
       id: saved.id,
       title: saved.title,
       status: saved.status,
       feedback: saved.feedback,
       reviewerId: saved.reviewerId,
+      reviewerName:
+        names.get(reviewerSlack) ?? user.name ?? '관리자',
       assigneeId: saved.assigneeId,
+      assigneeName: names.get(saved.assigneeId) ?? null,
       publisherSlackMemberId: saved.publisherSlackMemberId,
+      publisherName: names.get(saved.publisherSlackMemberId) ?? null,
     });
 
     const [enriched] = await this.enrichSummaries([this.toSummary(saved)]);
@@ -679,6 +716,24 @@ export class QuestService {
     if (q.assigneeId !== user.slackMemberId) {
       throw new ForbiddenException('이 퀘스트에 접근할 수 없습니다.');
     }
+  }
+
+  private async resolveNamesBySlackIds(
+    companyCode: string,
+    slackIds: (string | null | undefined)[],
+  ): Promise<Map<string, string>> {
+    const ids = [
+      ...new Set(
+        slackIds.filter((id): id is string => typeof id === 'string' && !!id.trim()),
+      ),
+    ];
+    if (ids.length === 0) return new Map();
+
+    const users = await this.prisma.user.findMany({
+      where: { companyCode, slackMemberId: { in: ids } },
+      select: { slackMemberId: true, name: true },
+    });
+    return new Map(users.map((u) => [u.slackMemberId, u.name]));
   }
 
   private async enrichSummaries(items: QuestSummary[]): Promise<QuestSummary[]> {

@@ -24,6 +24,7 @@ import { QuestListQueryDto } from './dto/quest-list-query.dto';
 import { ReviewQuestDto } from './dto/review-quest.dto';
 import { UpdateQuestDto } from './dto/update-quest.dto';
 import { AdminRoleGuard } from './guards/admin-role.guard';
+import { buildContentDisposition } from '../common/utils/content-disposition';
 import { QuestService } from './quest.service';
 
 @Controller('quests')
@@ -134,7 +135,7 @@ export class QuestController {
     res.setHeader('Content-Type', proof.mimeType);
     res.setHeader(
       'Content-Disposition',
-      `attachment; filename="${encodeURIComponent(proof.fileName)}"`,
+      buildContentDisposition('attachment', proof.fileName),
     );
     res.send(proof.buffer);
   }
@@ -152,9 +153,10 @@ export class QuestController {
     res.setHeader('Content-Type', proof.mimeType);
     res.setHeader(
       'Content-Disposition',
-      isImage || isPdf
-        ? `inline; filename="${encodeURIComponent(proof.fileName)}"`
-        : `attachment; filename="${encodeURIComponent(proof.fileName)}"`,
+      buildContentDisposition(
+        isImage || isPdf ? 'inline' : 'attachment',
+        proof.fileName,
+      ),
     );
     res.send(proof.buffer);
   }

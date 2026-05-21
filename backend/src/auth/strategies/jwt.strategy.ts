@@ -7,6 +7,7 @@ import { PassportStrategy } from '@nestjs/passport';
 interface JwtPayload {
   sub: string;
   email: string;
+  name?: string;
   role: string;
   companyCode: string;
   slackMemberId: string;

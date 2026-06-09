@@ -5,8 +5,10 @@ import {
 } from '@nestjs/common';
 import { JwtService } from '@nestjs/jwt';
 import { ConfigService } from '@nestjs/config';
+import { Prisma } from '@prisma/client';
 import * as bcrypt from 'bcryptjs';
 import { PrismaService } from '../prisma/prisma.service';
+import { ROLES } from '../common/roles';
 import { SignInDto } from './dto/sign-in.dto';
 import { SignUpDto } from './dto/sign-up.dto';
 import { UpdateProfileDto } from './dto/update-profile.dto';
@@ -45,39 +47,72 @@ export class AuthService {
   ) {}
 
   async signUp(dto: SignUpDto): Promise<AuthTokens> {
+    const passwordHash = await bcrypt.hash(dto.password, 10);
+    const email = dto.email.toLowerCase();
+
+    // 사전 중복 검사(친절한 메시지). 경합 시에는 아래 catch 의 유니크 위반 처리가 보강한다.
     const existing = await this.prisma.user.findFirst({
       where: {
-        OR: [
-          {
-            email: dto.email,
-            companyCode: dto.companyCode,
-          },
-          {
-            slackMemberId: dto.slackMemberId,
-            companyCode: dto.companyCode,
-          },
-        ],
+        companyCode: dto.companyCode,
+        OR: [{ email }, { slackMemberId: dto.slackMemberId }],
       },
       select: { id: true },
     });
-
     if (existing) {
       throw new BadRequestException(
         '같은 회사코드에 이미 가입된 이메일 또는 Slack 멤버 ID입니다.',
       );
     }
 
-    const passwordHash = await bcrypt.hash(dto.password, 10);
+    // 회사코드에 가입자가 없으면 최초 가입자를 슈퍼관리자로 지정.
+    const companyMembers = await this.prisma.user.count({
+      where: { companyCode: dto.companyCode },
+    });
+    const role = companyMembers === 0 ? ROLES.SUPERADMIN : ROLES.EMPLOYEE;
 
-    const user = await this.prisma.user.create({
-      data: {
-        email: dto.email.toLowerCase(),
+    try {
+      const user = await this.createUser({
+        email,
         passwordHash,
         name: dto.name,
         slackMemberId: dto.slackMemberId,
         companyCode: dto.companyCode,
-        role: dto.role ?? 'employee',
-      },
+        role,
+      });
+      return this.issueTokens(user);
+    } catch (e) {
+      // 동시 최초 가입 경합: 슈퍼관리자 유니크 인덱스 위반 → 사원으로 강등 생성
+      if (role === ROLES.SUPERADMIN && this.isSuperadminUniqueViolation(e)) {
+        const user = await this.createUser({
+          email,
+          passwordHash,
+          name: dto.name,
+          slackMemberId: dto.slackMemberId,
+          companyCode: dto.companyCode,
+          role: ROLES.EMPLOYEE,
+        });
+        return this.issueTokens(user);
+      }
+      // 동시 중복 가입(email/slack 유니크) 경합
+      if (this.isUniqueViolation(e)) {
+        throw new BadRequestException(
+          '같은 회사코드에 이미 가입된 이메일 또는 Slack 멤버 ID입니다.',
+        );
+      }
+      throw e;
+    }
+  }
+
+  private async createUser(data: {
+    email: string;
+    passwordHash: string;
+    name: string;
+    slackMemberId: string;
+    companyCode: string;
+    role: string;
+  }): Promise<AuthUser> {
+    return this.prisma.user.create({
+      data,
       select: {
         id: true,
         email: true,
@@ -87,8 +122,18 @@ export class AuthService {
         role: true,
       },
     });
+  }
 
-    return this.issueTokens(user);
+  private isUniqueViolation(e: unknown): boolean {
+    return (
+      e instanceof Prisma.PrismaClientKnownRequestError && e.code === 'P2002'
+    );
+  }
+
+  private isSuperadminUniqueViolation(e: unknown): boolean {
+    if (!this.isUniqueViolation(e)) return false;
+    const target = (e as Prisma.PrismaClientKnownRequestError).meta?.target;
+    return JSON.stringify(target ?? '').includes('superadmin');
   }
 
   async signIn(dto: SignInDto): Promise<AuthTokens> {

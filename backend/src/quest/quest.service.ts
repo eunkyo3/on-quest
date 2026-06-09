@@ -17,11 +17,15 @@ import {
 } from '../common/utils/proof-share-token';
 import { N8nService } from '../automation/n8n.service';
 import { CreateQuestDto } from './dto/create-quest.dto';
+import { DeclineQuestDto } from './dto/decline-quest.dto';
+import { ReopenQuestDto } from './dto/reopen-quest.dto';
 import { QuestListQueryDto } from './dto/quest-list-query.dto';
 import { ReviewQuestDto } from './dto/review-quest.dto';
 import { UpdateQuestDto } from './dto/update-quest.dto';
 import { QuestStatus } from './enums/quest-status.enum';
 import type { QuestJwtUser } from './quest-auth.types';
+import { ROLES, isManagerRole as isManager } from '../common/roles';
+import { AuditService } from '../audit/audit.service';
 
 const questListSelect = {
   id: true,
@@ -30,6 +34,7 @@ const questListSelect = {
   deadline: true,
   status: true,
   feedback: true,
+  declineReason: true,
   proofFileName: true,
   proofMimeType: true,
   submissionNote: true,
@@ -48,6 +53,7 @@ type QuestListRow = {
   deadline: Date;
   status: number;
   feedback: string | null;
+  declineReason: string | null;
   proofFileName: string | null;
   proofMimeType: string | null;
   submissionNote: string | null;
@@ -66,6 +72,7 @@ export interface QuestSummary {
   deadline: Date;
   status: QuestStatus;
   feedback: string | null;
+  declineReason: string | null;
   proofFileName: string | null;
   proofMimeType: string | null;
   hasProof: boolean;
@@ -94,6 +101,7 @@ export interface QuestProgressStats {
   submitted: number;
   completed: number;
   rejected: number;
+  declined: number;
   completionRate: number;
 }
 
@@ -107,6 +115,7 @@ export interface AssigneeQuestStats {
   submitted: number;
   completed: number;
   rejected: number;
+  declined: number;
   completionRate: number;
 }
 
@@ -129,6 +138,7 @@ export class QuestService {
     private readonly prisma: PrismaService,
     private readonly n8n: N8nService,
     private readonly config: ConfigService,
+    private readonly audit: AuditService,
   ) {
     const base = (this.config.get<string>('API_PUBLIC_URL') ?? '').replace(
       /\/$/,
@@ -156,7 +166,7 @@ export class QuestService {
   }
 
   async createQuest(dto: CreateQuestDto, publisher: QuestJwtUser): Promise<QuestSummary> {
-    if (publisher.role !== 'admin') {
+    if (!isManager(publisher.role)) {
       throw new ForbiddenException('퀘스트 발행은 관리자만 가능합니다.');
     }
 
@@ -164,7 +174,7 @@ export class QuestService {
       where: {
         slackMemberId: dto.assigneeId,
         companyCode: publisher.companyCode,
-        role: 'employee',
+        role: ROLES.EMPLOYEE,
       },
       select: { id: true },
     });
@@ -219,14 +229,14 @@ export class QuestService {
    * 관리자 전용: 동일 회사코드에 등록된 사원 목록(퀘스트 담당 배정용).
    */
   async listAssignableEmployees(user: QuestJwtUser): Promise<AssignableEmployee[]> {
-    if (user.role !== 'admin') {
+    if (!isManager(user.role)) {
       throw new ForbiddenException('관리자만 조회할 수 있습니다.');
     }
 
     const rows = await this.prisma.user.findMany({
       where: {
         companyCode: user.companyCode,
-        role: 'employee',
+        role: ROLES.EMPLOYEE,
       },
       select: {
         id: true,
@@ -248,12 +258,12 @@ export class QuestService {
     const limit = query.limit ?? 20;
     const skip = (page - 1) * limit;
 
-    if (query.assigneeId && user.role !== 'admin') {
+    if (query.assigneeId && !isManager(user.role)) {
       throw new ForbiddenException('담당자별 조회는 관리자만 가능합니다.');
     }
 
     const where = {
-      ...(user.role === 'admin'
+      ...(isManager(user.role)
         ? { companyCode: user.companyCode }
         : { companyCode: user.companyCode, assigneeId: user.slackMemberId }),
       ...(query.assigneeId ? { assigneeId: query.assigneeId } : {}),
@@ -301,7 +311,7 @@ export class QuestService {
     dto: UpdateQuestDto,
     user: QuestJwtUser,
   ): Promise<QuestSummary> {
-    if (user.role !== 'admin') {
+    if (!isManager(user.role)) {
       throw new ForbiddenException('퀘스트 수정은 관리자만 가능합니다.');
     }
 
@@ -336,23 +346,190 @@ export class QuestService {
   }
 
   async deleteQuest(id: string, user: QuestJwtUser): Promise<void> {
-    if (user.role !== 'admin') {
+    if (!isManager(user.role)) {
       throw new ForbiddenException('퀘스트 삭제는 관리자만 가능합니다.');
     }
 
     const quest = await this.prisma.quest.findUnique({
       where: { id },
-      select: { companyCode: true, status: true },
+      select: { companyCode: true, status: true, title: true },
     });
     if (!quest) throw new NotFoundException(`Quest(${id}) not found`);
     if (quest.companyCode !== user.companyCode) {
       throw new ForbiddenException('이 퀘스트를 삭제할 수 없습니다.');
     }
-    if (quest.status !== QuestStatus.PENDING) {
-      throw new BadRequestException('대기 상태의 퀘스트만 삭제할 수 있습니다.');
+    if (
+      quest.status !== QuestStatus.PENDING &&
+      quest.status !== QuestStatus.DECLINED
+    ) {
+      throw new BadRequestException(
+        '대기 또는 거부됨 상태의 퀘스트만 삭제할 수 있습니다.',
+      );
     }
 
     await this.prisma.quest.delete({ where: { id } });
+
+    await this.audit.record(user, {
+      action: 'quest.deleted',
+      targetType: 'quest',
+      targetId: id,
+      detail: `"${quest.title}" 삭제`,
+    });
+  }
+
+  /**
+   * 사원이 배정된 퀘스트의 수행 자체를 거부한다.
+   * - 담당자 본인만 가능
+   * - 대기·착수 상태에서만 가능 (이미 제출했거나 완료된 건은 거부 불가)
+   * - 사유 필수 → status DECLINED 로 전환
+   */
+  async declineQuest(
+    id: string,
+    dto: DeclineQuestDto,
+    user: QuestJwtUser,
+  ): Promise<QuestSummary> {
+    const quest = await this.prisma.quest.findUnique({
+      where: { id },
+      select: questListSelect,
+    });
+    if (!quest) throw new NotFoundException(`Quest(${id}) not found`);
+    if (quest.companyCode !== user.companyCode) {
+      throw new ForbiddenException('이 퀘스트에 접근할 수 없습니다.');
+    }
+    if (quest.assigneeId !== user.slackMemberId) {
+      throw new ForbiddenException('담당자만 퀘스트를 거부할 수 있습니다.');
+    }
+    if (
+      quest.status !== QuestStatus.PENDING &&
+      quest.status !== QuestStatus.IN_PROGRESS
+    ) {
+      throw new BadRequestException(
+        '대기 또는 착수 상태에서만 퀘스트를 거부할 수 있습니다.',
+      );
+    }
+
+    const reason = dto.reason.trim();
+
+    const saved = await this.prisma.quest.update({
+      where: { id },
+      data: {
+        status: QuestStatus.DECLINED,
+        declineReason: reason,
+      },
+      select: questListSelect,
+    });
+
+    const names = await this.resolveNamesBySlackIds(saved.companyCode, [
+      saved.assigneeId,
+      saved.publisherSlackMemberId,
+    ]);
+
+    this.n8n.triggerWebhook('quest.declined', {
+      id: saved.id,
+      title: saved.title,
+      declineReason: saved.declineReason,
+      assigneeId: saved.assigneeId,
+      assigneeName: names.get(saved.assigneeId) ?? user.name ?? null,
+      publisherSlackMemberId: saved.publisherSlackMemberId,
+      publisherName: names.get(saved.publisherSlackMemberId) ?? null,
+    });
+
+    await this.audit.record(user, {
+      action: 'quest.declined',
+      targetType: 'quest',
+      targetId: saved.id,
+      detail: `"${saved.title}" 거부 — 사유: ${reason}`,
+    });
+
+    const [enriched] = await this.enrichSummaries([this.toSummary(saved)]);
+    return enriched;
+  }
+
+  /**
+   * 관리자/슈퍼관리자: 거부된 퀘스트를 다시 대기 상태로 되살린다(재개봉).
+   * - dto.assigneeId 가 있으면 같은 회사의 사원으로 담당자를 재배정한다.
+   * - 거부 사유를 비우고, 마감 알림 플래그도 초기화해 알림이 다시 동작하도록 한다.
+   */
+  async reopenQuest(
+    id: string,
+    dto: ReopenQuestDto,
+    user: QuestJwtUser,
+  ): Promise<QuestSummary> {
+    if (!isManager(user.role)) {
+      throw new ForbiddenException('퀘스트 재개봉은 관리자만 가능합니다.');
+    }
+
+    const quest = await this.prisma.quest.findUnique({
+      where: { id },
+      select: questListSelect,
+    });
+    if (!quest) throw new NotFoundException(`Quest(${id}) not found`);
+    if (quest.companyCode !== user.companyCode) {
+      throw new ForbiddenException('이 퀘스트를 재개봉할 수 없습니다.');
+    }
+    if (quest.status !== QuestStatus.DECLINED) {
+      throw new BadRequestException('거부됨 상태의 퀘스트만 재개봉할 수 있습니다.');
+    }
+
+    let nextAssigneeId = quest.assigneeId;
+    if (dto.assigneeId && dto.assigneeId !== quest.assigneeId) {
+      const assignee = await this.prisma.user.findFirst({
+        where: {
+          slackMemberId: dto.assigneeId,
+          companyCode: user.companyCode,
+          role: ROLES.EMPLOYEE,
+        },
+        select: { id: true },
+      });
+      if (!assignee) {
+        throw new BadRequestException(
+          '같은 회사의 사원(Slack 멤버 ID)을 찾을 수 없습니다. 목록에서 선택해 주세요.',
+        );
+      }
+      nextAssigneeId = dto.assigneeId;
+    }
+
+    const saved = await this.prisma.quest.update({
+      where: { id },
+      data: {
+        status: QuestStatus.PENDING,
+        declineReason: null,
+        assigneeId: nextAssigneeId,
+        deadlineSoonNotifiedAt: null,
+        overdueNotifiedAt: null,
+      },
+      select: questListSelect,
+    });
+
+    const reassigned = nextAssigneeId !== quest.assigneeId;
+    const names = await this.resolveNamesBySlackIds(saved.companyCode, [
+      saved.assigneeId,
+      saved.publisherSlackMemberId,
+    ]);
+
+    this.n8n.triggerWebhook('quest.reopened', {
+      id: saved.id,
+      title: saved.title,
+      deadline: saved.deadline.toISOString(),
+      deadlineDisplay: formatDateTimeToMinute(saved.deadline),
+      assigneeId: saved.assigneeId,
+      assigneeName: names.get(saved.assigneeId) ?? null,
+      publisherSlackMemberId: saved.publisherSlackMemberId,
+      publisherName: names.get(saved.publisherSlackMemberId) ?? user.name ?? null,
+      reassigned,
+    });
+
+    await this.audit.record(user, {
+      action: 'quest.reopened',
+      targetType: 'quest',
+      targetId: saved.id,
+      detail: reassigned
+        ? `"${saved.title}" 재개봉 — 담당자 재배정: ${saved.assigneeId}`
+        : `"${saved.title}" 재개봉`,
+    });
+
+    const [enriched] = await this.enrichSummaries([this.toSummary(saved)]);
+    return enriched;
   }
 
   async startQuest(id: string, user: QuestJwtUser): Promise<QuestSummary> {
@@ -382,12 +559,11 @@ export class QuestService {
   }
 
   async getStats(user: QuestJwtUser): Promise<QuestProgressStats> {
-    const baseWhere =
-      user.role === 'admin'
-        ? { companyCode: user.companyCode }
-        : { companyCode: user.companyCode, assigneeId: user.slackMemberId };
+    const baseWhere = isManager(user.role)
+      ? { companyCode: user.companyCode }
+      : { companyCode: user.companyCode, assigneeId: user.slackMemberId };
 
-    const [total, pending, started, submitted, completed, rejected] =
+    const [total, pending, started, submitted, completed, rejected, declined] =
       await Promise.all([
         this.prisma.quest.count({ where: baseWhere }),
         this.prisma.quest.count({
@@ -405,9 +581,23 @@ export class QuestService {
         this.prisma.quest.count({
           where: { ...baseWhere, status: QuestStatus.REJECTED },
         }),
+        this.prisma.quest.count({
+          where: { ...baseWhere, status: QuestStatus.DECLINED },
+        }),
       ]);
-    const completionRate = total === 0 ? 0 : Math.round((completed / total) * 100);
-    return { total, pending, started, submitted, completed, rejected, completionRate };
+    // 완료율은 사원이 거부한 건을 분모에서 제외해 실제 수행 대상 기준으로 산정한다.
+    const denom = total - declined;
+    const completionRate = denom <= 0 ? 0 : Math.round((completed / denom) * 100);
+    return {
+      total,
+      pending,
+      started,
+      submitted,
+      completed,
+      rejected,
+      declined,
+      completionRate,
+    };
   }
 
   /**
@@ -415,7 +605,7 @@ export class QuestService {
    * 퀘스트 이력이 없는 사원은 목록에 포함하지 않음.
    */
   async getStatsByAssignee(user: QuestJwtUser): Promise<AssigneeQuestStats[]> {
-    if (user.role !== 'admin') {
+    if (!isManager(user.role)) {
       throw new ForbiddenException('관리자만 조회할 수 있습니다.');
     }
 
@@ -432,6 +622,7 @@ export class QuestService {
       submitted: number;
       completed: number;
       rejected: number;
+      declined: number;
     };
 
     const map = new Map<string, Acc>();
@@ -444,6 +635,7 @@ export class QuestService {
         submitted: 0,
         completed: 0,
         rejected: 0,
+        declined: 0,
       };
       const n = row._count.id;
       cur.total += n;
@@ -452,6 +644,7 @@ export class QuestService {
       else if (row.status === QuestStatus.SUBMITTED) cur.submitted += n;
       else if (row.status === QuestStatus.COMPLETED) cur.completed += n;
       else if (row.status === QuestStatus.REJECTED) cur.rejected += n;
+      else if (row.status === QuestStatus.DECLINED) cur.declined += n;
       map.set(row.assigneeId, cur);
     }
 
@@ -477,8 +670,11 @@ export class QuestService {
         submitted: s.submitted,
         completed: s.completed,
         rejected: s.rejected,
+        declined: s.declined,
         completionRate:
-          s.total === 0 ? 0 : Math.round((s.completed / s.total) * 100),
+          s.total - s.declined <= 0
+            ? 0
+            : Math.round((s.completed / (s.total - s.declined)) * 100),
       }))
       .sort((a, b) => b.total - a.total);
   }
@@ -529,6 +725,9 @@ export class QuestService {
         proofFileName,
         submissionNote,
         status: QuestStatus.SUBMITTED,
+        // 재제출 시 이전 검토 흔적(반려 피드백·검토자)을 초기화한다.
+        feedback: null,
+        reviewerId: null,
       },
       select: questListSelect,
     });
@@ -561,7 +760,7 @@ export class QuestService {
     dto: ReviewQuestDto,
     user: QuestJwtUser,
   ): Promise<QuestSummary> {
-    if (user.role !== 'admin') {
+    if (!isManager(user.role)) {
       throw new ForbiddenException('검토는 관리자만 가능합니다.');
     }
 
@@ -617,6 +816,16 @@ export class QuestService {
       assigneeName: names.get(saved.assigneeId) ?? null,
       publisherSlackMemberId: saved.publisherSlackMemberId,
       publisherName: names.get(saved.publisherSlackMemberId) ?? null,
+    });
+
+    await this.audit.record(user, {
+      action: dto.status === QuestStatus.COMPLETED ? 'quest.approved' : 'quest.rejected',
+      targetType: 'quest',
+      targetId: saved.id,
+      detail:
+        dto.status === QuestStatus.COMPLETED
+          ? `"${saved.title}" 완료 승인`
+          : `"${saved.title}" 반려 — 피드백: ${saved.feedback ?? ''}`,
     });
 
     const [enriched] = await this.enrichSummaries([this.toSummary(saved)]);
@@ -712,7 +921,7 @@ export class QuestService {
     if (q.companyCode !== user.companyCode) {
       throw new ForbiddenException('이 퀘스트에 접근할 수 없습니다.');
     }
-    if (user.role === 'admin') return;
+    if (isManager(user.role)) return;
     if (q.assigneeId !== user.slackMemberId) {
       throw new ForbiddenException('이 퀘스트에 접근할 수 없습니다.');
     }
@@ -762,6 +971,7 @@ export class QuestService {
       deadline: q.deadline,
       status: q.status as QuestStatus,
       feedback: q.feedback,
+      declineReason: q.declineReason,
       proofFileName: q.proofFileName,
       proofMimeType: q.proofMimeType,
       hasProof: !!q.proofFileName,

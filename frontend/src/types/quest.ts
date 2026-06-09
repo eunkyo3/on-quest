@@ -4,6 +4,7 @@ export enum QuestStatus {
   SUBMITTED = 2,
   COMPLETED = 3,
   REJECTED = 4,
+  DECLINED = 5,
 }
 
 export const QUEST_STATUS_LABEL: Record<QuestStatus, string> = {
@@ -12,6 +13,7 @@ export const QUEST_STATUS_LABEL: Record<QuestStatus, string> = {
   [QuestStatus.SUBMITTED]: '검토 대기',
   [QuestStatus.COMPLETED]: '완료',
   [QuestStatus.REJECTED]: '반려',
+  [QuestStatus.DECLINED]: '거부됨',
 };
 
 export const QUEST_STATUS_COLOR: Record<QuestStatus, string> = {
@@ -20,6 +22,7 @@ export const QUEST_STATUS_COLOR: Record<QuestStatus, string> = {
   [QuestStatus.SUBMITTED]: '#3b82f6',
   [QuestStatus.COMPLETED]: '#10b981',
   [QuestStatus.REJECTED]: '#ef4444',
+  [QuestStatus.DECLINED]: '#6b7280',
 };
 
 export interface Quest {
@@ -29,6 +32,7 @@ export interface Quest {
   deadline: string;
   status: QuestStatus;
   feedback: string | null;
+  declineReason: string | null;
   proofFileName: string | null;
   proofMimeType: string | null;
   hasProof: boolean;
@@ -64,6 +68,7 @@ export interface QuestStats {
   submitted: number;
   completed: number;
   rejected: number;
+  declined: number;
   completionRate: number;
 }
 
@@ -76,6 +81,7 @@ export interface AssigneeQuestStats {
   submitted: number;
   completed: number;
   rejected: number;
+  declined: number;
   completionRate: number;
 }
 
@@ -103,6 +109,15 @@ export interface ReviewQuestPayload {
   status: QuestStatus.COMPLETED | QuestStatus.REJECTED;
   feedback?: string;
   reviewerId?: string;
+}
+
+export interface DeclineQuestPayload {
+  reason: string;
+}
+
+export interface ReopenQuestPayload {
+  /** 선택: 재개봉하며 다른 사원으로 재배정 */
+  assigneeId?: string;
 }
 
 /** 증빙 업로드 허용 MIME (안내·검증용) */

@@ -1,10 +1,12 @@
+export type AppRole = 'superadmin' | 'admin' | 'employee';
+
 export interface AuthUser {
   id: string;
   email: string;
   name: string;
   slackMemberId: string;
   companyCode: string;
-  role: string;
+  role: AppRole | string;
 }
 
 export interface AuthResponse {
@@ -19,7 +21,6 @@ export interface SignUpPayload {
   password: string;
   slackMemberId: string;
   companyCode: string;
-  role: 'employee' | 'admin';
 }
 
 export interface SignInPayload {

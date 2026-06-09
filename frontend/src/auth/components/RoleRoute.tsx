@@ -1,18 +1,16 @@
 import type { ReactElement } from 'react';
 import { Navigate, useLocation } from 'react-router-dom';
 import { useAuthStore } from '../store/authStore';
+import { homePathForRole } from '../../types/role';
 
-type AppRole = 'admin' | 'employee';
-
-function homeForRole(role: string | undefined): string {
-  return role === 'admin' ? '/admin' : '/employee';
-}
+/** @deprecated types/role 의 homePathForRole 사용 권장 (호환용 재노출) */
+export const homeForRole = homePathForRole;
 
 export function RoleRoute({
-  allowedRole,
+  allowedRoles,
   children,
 }: {
-  allowedRole: AppRole;
+  allowedRoles: string[];
   children: ReactElement;
 }) {
   const { accessToken, user, isHydrated } = useAuthStore();
@@ -26,8 +24,8 @@ export function RoleRoute({
     return <Navigate to="/login" replace state={{ from: location.pathname }} />;
   }
 
-  if (user?.role !== allowedRole) {
-    return <Navigate to={homeForRole(user?.role)} replace />;
+  if (!user || !allowedRoles.includes(user.role)) {
+    return <Navigate to={homePathForRole(user?.role)} replace />;
   }
 
   return children;

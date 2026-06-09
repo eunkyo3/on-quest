@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState } from 'react';
+import { questApi } from '../api/questApi';
 import { CreateQuestForm } from '../components/CreateQuestForm';
 import { Modal } from '../components/Modal';
 import { ProgressDashboard } from '../components/ProgressDashboard';
@@ -9,6 +10,7 @@ import {
   QuestStatus,
   QUEST_STATUS_LABEL,
   type AssigneeQuestStats,
+  type Quest,
 } from '../types/quest';
 import {
   STATS_FILTER_LABEL,
@@ -38,6 +40,9 @@ export default function AdminDashboard() {
     fetchAssigneeStats,
   } = useQuestStore();
 
+  // 검토 대기는 현재 페이지에 한정되지 않도록 전 페이지에서 별도 조회한다.
+  const [reviewQueue, setReviewQueue] = useState<Quest[]>([]);
+
   useEffect(() => {
     void fetchStats();
     void fetchAssigneeStats();
@@ -49,10 +54,22 @@ export default function AdminDashboard() {
     void fetchQuests({ page: 1, status });
   }, [statusFilter, fetchQuests]);
 
-  const pendingReview = useMemo(
-    () => quests.filter((q) => q.status === QuestStatus.SUBMITTED),
-    [quests],
-  );
+  // stats 가 갱신될 때마다(=발행·검토·제출 등 변동 시) 검토 대기 목록을 다시 가져온다.
+  useEffect(() => {
+    let cancelled = false;
+    void questApi
+      .list({ page: 1, limit: 100, status: QuestStatus.SUBMITTED })
+      .then((res) => {
+        if (!cancelled) setReviewQueue(res.items);
+      })
+      .catch(() => {
+        if (!cancelled) setReviewQueue([]);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [stats]);
+
   const others = useMemo(
     () => quests.filter((q) => q.status !== QuestStatus.SUBMITTED),
     [quests],
@@ -69,6 +86,15 @@ export default function AdminDashboard() {
 
   return (
     <div className="grid" style={{ gap: '1.5rem' }}>
+      <section className="card role-banner role-banner-admin">
+        <div>
+          <h2 style={{ margin: 0 }}>관리자 워크스페이스</h2>
+          <p className="text-muted" style={{ margin: '0.35rem 0 0' }}>
+            퀘스트를 발행하고 제출된 증빙을 검토합니다.
+          </p>
+        </div>
+      </section>
+
       <div className="tab-row" role="tablist" aria-label="관리자 메뉴">
         <button
           type="button"
@@ -94,11 +120,11 @@ export default function AdminDashboard() {
         <div className="grid" style={{ gap: '1.5rem' }}>
           <ProgressDashboard
             stats={stats}
-            title="📊 전사 발행 퀘스트 현황"
+            title="전사 발행 퀘스트 현황"
             onFilterClick={openCompanyStats}
           />
           <section>
-            <h2 className="section-title">👥 담당자별 상세 통계</h2>
+            <h2 className="section-title">담당자별 상세 통계</h2>
             {assigneeStats.length === 0 ? (
               <div className="card text-muted">집계할 배정 이력이 없습니다.</div>
             ) : (
@@ -114,6 +140,7 @@ export default function AdminDashboard() {
                       <th>착수</th>
                       <th>대기</th>
                       <th>반려</th>
+                      <th>거부</th>
                       <th>달성률</th>
                       <th />
                     </tr>
@@ -129,6 +156,7 @@ export default function AdminDashboard() {
                         <td>{row.started}</td>
                         <td>{row.pending}</td>
                         <td>{row.rejected}</td>
+                        <td>{row.declined}</td>
                         <td>{row.completionRate}%</td>
                         <td>
                           <button
@@ -191,22 +219,18 @@ export default function AdminDashboard() {
           </section>
 
           <section>
-            <h2 className="section-title">🧾 검토 대기</h2>
-            {error && <div className="feedback">⚠ {error}</div>}
-            {loading ? (
-              <div className="empty">불러오는 중…</div>
-            ) : (
-              <QuestList
-                quests={pendingReview}
-                mode="admin"
-                detailBasePath="/admin/quests"
-                emptyText="검토할 증빙 자료가 없습니다."
-              />
-            )}
+            <h2 className="section-title">검토 대기 ({reviewQueue.length}건)</h2>
+            {error && <div className="feedback">{error}</div>}
+            <QuestList
+              quests={reviewQueue}
+              mode="admin"
+              detailBasePath="/admin/quests"
+              emptyText="검토할 증빙 자료가 없습니다."
+            />
           </section>
 
           <section>
-            <h2 className="section-title">📚 전체 퀘스트</h2>
+            <h2 className="section-title">전체 퀘스트</h2>
             <QuestList
               quests={others}
               mode="admin"

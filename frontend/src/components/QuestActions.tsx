@@ -1,29 +1,32 @@
 import { useEffect, useRef, useState } from 'react';
-import { Link } from 'react-router-dom';
 import { questApi } from '../api/questApi';
 import { useQuestStore } from '../store/questStore';
 import { useToastStore } from '../store/toastStore';
 import {
   ALLOWED_PROOF_ACCEPT,
-  QUEST_STATUS_COLOR,
-  QUEST_STATUS_LABEL,
   QuestStatus,
   type Quest,
 } from '../types/quest';
-import { formatDateTimeToMinute } from '../utils/formatDateTime';
 import { ProofPreviewModal } from './ProofPreviewModal';
 
 interface Props {
   quest: Quest;
   mode: 'employee' | 'admin';
-  detailBasePath: string;
+  /** 액션 성공 후 갱신된 퀘스트를 상위로 전달(상세 페이지 로컬 상태 동기화용) */
+  onUpdated?: (quest: Quest) => void;
 }
 
 function hasProofFile(q: Quest): boolean {
   return Boolean(q.proofFileName?.trim());
 }
 
-export function QuestItem({ quest, mode, detailBasePath }: Props) {
+/**
+ * 퀘스트 한 건에 대한 역할별 상호작용 영역.
+ * - 사원: 착수 / 거부 / 증빙 제출(재제출) / 피드백·거부사유 확인
+ * - 관리자: 검토(승인·반려) / 증빙 확인
+ * 테이블의 펼친 행과 상세 페이지에서 공통으로 사용한다.
+ */
+export function QuestActions({ quest, mode, onUpdated }: Props) {
   const [busy, setBusy] = useState(false);
   const [feedback, setFeedback] = useState(quest.feedback ?? '');
   const [draftNote, setDraftNote] = useState(quest.submissionNote ?? '');
@@ -32,13 +35,17 @@ export function QuestItem({ quest, mode, detailBasePath }: Props) {
   const [dragOver, setDragOver] = useState(false);
   const [proofModalUrl, setProofModalUrl] = useState<string | null>(null);
   const [proofModalOpen, setProofModalOpen] = useState(false);
+  const [declineOpen, setDeclineOpen] = useState(false);
+  const [declineReason, setDeclineReason] = useState('');
   const fileInputRef = useRef<HTMLInputElement>(null);
-  const { uploadProof, reviewQuest, startQuest } = useQuestStore();
+  const { uploadProof, reviewQuest, startQuest, declineQuest } = useQuestStore();
   const proofAttached = hasProofFile(quest);
 
   useEffect(() => {
     setDraftNote(quest.submissionNote ?? '');
     setDraftFile(null);
+    setDeclineOpen(false);
+    setDeclineReason('');
     if (fileInputRef.current) fileInputRef.current.value = '';
   }, [quest.id, quest.updatedAt, quest.submissionNote]);
 
@@ -62,10 +69,6 @@ export function QuestItem({ quest, mode, detailBasePath }: Props) {
     return () => URL.revokeObjectURL(url);
   }, [draftFile]);
 
-  const overdue =
-    new Date(quest.deadline).getTime() < Date.now() &&
-    quest.status !== QuestStatus.COMPLETED;
-
   const pickFile = (file: File | undefined) => {
     if (!file) return;
     setDraftFile(file);
@@ -76,15 +79,17 @@ export function QuestItem({ quest, mode, detailBasePath }: Props) {
       useToastStore.getState().push('증빙 파일을 선택한 뒤 제출해 주세요.', 'error');
       return;
     }
-    const isResubmit = quest.status === QuestStatus.REJECTED;
+    const isResubmit =
+      quest.status === QuestStatus.REJECTED || quest.status === QuestStatus.SUBMITTED;
     const msg = isResubmit
-      ? '선택한 증빙 파일과 추가 설명(입력한 경우)으로 재제출합니다. 정말 제출할까요?'
+      ? '선택한 증빙 파일과 추가 설명(입력한 경우)으로 다시 제출합니다. 정말 제출할까요?'
       : '선택한 증빙 파일과 추가 설명(입력한 경우)으로 제출합니다. 정말 제출할까요?';
     if (!window.confirm(msg)) return;
 
     setBusy(true);
     try {
-      await uploadProof(quest.id, draftFile, draftNote);
+      const updated = await uploadProof(quest.id, draftFile, draftNote);
+      onUpdated?.(updated);
     } finally {
       setBusy(false);
     }
@@ -93,7 +98,24 @@ export function QuestItem({ quest, mode, detailBasePath }: Props) {
   const handleStart = async () => {
     setBusy(true);
     try {
-      await startQuest(quest.id);
+      const updated = await startQuest(quest.id);
+      onUpdated?.(updated);
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const handleDecline = async () => {
+    if (!declineReason.trim()) {
+      useToastStore.getState().push('거부 사유를 입력해 주세요.', 'error');
+      return;
+    }
+    if (!window.confirm('이 퀘스트의 수행을 거부합니다. 계속할까요?')) return;
+    setBusy(true);
+    try {
+      const updated = await declineQuest(quest.id, { reason: declineReason.trim() });
+      setDeclineOpen(false);
+      onUpdated?.(updated);
     } finally {
       setBusy(false);
     }
@@ -106,7 +128,11 @@ export function QuestItem({ quest, mode, detailBasePath }: Props) {
     }
     setBusy(true);
     try {
-      await reviewQuest(quest.id, { status, feedback: feedback.trim() || undefined });
+      const updated = await reviewQuest(quest.id, {
+        status,
+        feedback: feedback.trim() || undefined,
+      });
+      onUpdated?.(updated);
     } finally {
       setBusy(false);
     }
@@ -158,46 +184,25 @@ export function QuestItem({ quest, mode, detailBasePath }: Props) {
     quest.status === QuestStatus.SUBMITTED ||
     quest.status === QuestStatus.REJECTED;
 
+  const canDecline =
+    mode === 'employee' &&
+    (quest.status === QuestStatus.PENDING ||
+      quest.status === QuestStatus.IN_PROGRESS);
+
   const submitLabel = quest.status === QuestStatus.REJECTED ? '재제출' : '제출';
 
   return (
     <>
-    <ProofPreviewModal
-      open={proofModalOpen}
-      imageUrl={proofModalUrl}
-      fileName={quest.proofFileName}
-      onClose={closeProofModal}
-    />
-    <article className="quest-item">
-      <header>
-        <div>
-          <h3>
-            <Link to={`${detailBasePath}/${quest.id}`}>{quest.title}</Link>
-          </h3>
-          <div className="meta">
-            <span>ID: <code>{quest.id}</code></span>
-            {mode === 'admin' && (
-              <span>
-                담당: {quest.assigneeName ?? '—'} (<code>{quest.assigneeId}</code>)
-              </span>
-            )}
-            <span>마감: {formatDateTimeToMinute(quest.deadline)}</span>
-            {overdue && <span style={{ color: 'var(--danger)' }}>⚠ 기한 경과</span>}
-          </div>
-        </div>
-        <span
-          className="badge"
-          style={{ background: QUEST_STATUS_COLOR[quest.status] }}
-        >
-          {QUEST_STATUS_LABEL[quest.status]}
-        </span>
-      </header>
-
-      <p>{quest.description}</p>
+      <ProofPreviewModal
+        open={proofModalOpen}
+        imageUrl={proofModalUrl}
+        fileName={quest.proofFileName}
+        onClose={closeProofModal}
+      />
 
       {quest.proofFileName && (
         <div className="meta quest-proof-actions">
-          📎 증빙:&nbsp;
+          증빙:&nbsp;
           <button type="button" className="ghost" onClick={() => void handlePreviewProof()}>
             미리보기
           </button>
@@ -208,7 +213,13 @@ export function QuestItem({ quest, mode, detailBasePath }: Props) {
       )}
 
       {quest.feedback && mode === 'employee' && (
-        <div className="feedback">💬 피드백: {quest.feedback}</div>
+        <div className="feedback">검토 피드백: {quest.feedback}</div>
+      )}
+
+      {quest.status === QuestStatus.DECLINED && quest.declineReason && (
+        <div className="feedback feedback-muted">
+          {mode === 'admin' ? '사원 거부 사유' : '내가 입력한 거부 사유'}: {quest.declineReason}
+        </div>
       )}
 
       {mode === 'employee' && quest.status === QuestStatus.PENDING && (
@@ -216,6 +227,55 @@ export function QuestItem({ quest, mode, detailBasePath }: Props) {
           <button type="button" onClick={() => void handleStart()} disabled={busy}>
             {busy ? '처리 중…' : '착수하기'}
           </button>
+        </div>
+      )}
+
+      {canDecline && (
+        <div style={{ marginTop: '0.75rem' }}>
+          {declineOpen ? (
+            <div>
+              <label htmlFor={`decline-${quest.id}`}>거부 사유 (필수)</label>
+              <textarea
+                id={`decline-${quest.id}`}
+                value={declineReason}
+                onChange={(e) => setDeclineReason(e.target.value)}
+                placeholder="이 퀘스트를 수행하기 어려운 이유를 적어주세요."
+                maxLength={2000}
+                rows={3}
+                style={{ marginTop: '0.35rem' }}
+              />
+              <div className="quest-actions" style={{ marginTop: '0.5rem' }}>
+                <button
+                  type="button"
+                  className="danger"
+                  onClick={() => void handleDecline()}
+                  disabled={busy}
+                >
+                  {busy ? '처리 중…' : '거부 확정'}
+                </button>
+                <button
+                  type="button"
+                  className="ghost"
+                  onClick={() => {
+                    setDeclineOpen(false);
+                    setDeclineReason('');
+                  }}
+                  disabled={busy}
+                >
+                  취소
+                </button>
+              </div>
+            </div>
+          ) : (
+            <button
+              type="button"
+              className="ghost"
+              onClick={() => setDeclineOpen(true)}
+              disabled={busy}
+            >
+              퀘스트 거부
+            </button>
+          )}
         </div>
       )}
 
@@ -276,7 +336,7 @@ export function QuestItem({ quest, mode, detailBasePath }: Props) {
           </div>
           {proofAttached && quest.status === QuestStatus.SUBMITTED && (
             <p className="text-muted" style={{ marginTop: '0.5rem', fontSize: '0.85rem' }}>
-              관리자 검토 대기 중입니다. 파일을 바꾸려면 새 파일을 선택한 뒤 {submitLabel}하세요.
+              관리자 검토 대기 중입니다. 아직 확인 전이므로 새 파일·설명으로 수정하여 다시 제출할 수 있습니다.
             </p>
           )}
         </div>
@@ -285,8 +345,8 @@ export function QuestItem({ quest, mode, detailBasePath }: Props) {
       {mode === 'admin' && quest.status === QuestStatus.SUBMITTED && (
         <div style={{ marginTop: '0.5rem' }}>
           {quest.submissionNote && (
-            <div className="feedback" style={{ whiteSpace: 'pre-wrap' }}>
-              📝 사원 설명: {quest.submissionNote}
+            <div className="feedback feedback-muted" style={{ whiteSpace: 'pre-wrap' }}>
+              사원 설명: {quest.submissionNote}
             </div>
           )}
           <label>검토 피드백</label>
@@ -315,12 +375,6 @@ export function QuestItem({ quest, mode, detailBasePath }: Props) {
           </div>
         </div>
       )}
-
-      <p className="text-muted" style={{ marginTop: '0.5rem', fontSize: '0.8rem' }}>
-        <Link to={`${detailBasePath}/${quest.id}`}>상세 보기 →</Link>
-      </p>
-    </article>
     </>
   );
 }
-

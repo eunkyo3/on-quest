@@ -14,6 +14,7 @@ model User {
   name          String   @db.VarChar(80)
   slackMemberId String   @db.VarChar(64)
   companyCode   String   @db.VarChar(32)
+  /// role: superadmin | admin | employee — 회사코드 최초 가입자는 superadmin
   role          String   @default("employee") @db.VarChar(20)
   createdAt     DateTime @default(now()) @db.Timestamptz(6)
   updatedAt     DateTime @updatedAt @db.Timestamptz(6)
@@ -32,8 +33,11 @@ model Quest {
   title                  String   @db.VarChar(120)
   description            String   @db.Text
   deadline               DateTime @db.Timestamptz(6)
+  /// status v2: 0 대기 / 1 착수 / 2 검토대기 / 3 완료 / 4 반려 / 5 거부됨(사원이 수행 거부)
   status                 Int      @default(0) @db.SmallInt
   feedback               String?  @db.Text
+  /// 사원이 퀘스트를 거부할 때 입력하는 사유
+  declineReason          String?  @db.Text
   proofData              Bytes?
   proofMimeType          String?  @db.VarChar(255)
   proofFileName          String?  @db.VarChar(255)
@@ -53,4 +57,20 @@ model Quest {
   @@index([companyCode])
   @@index([companyCode, assigneeId])
   @@map("quests")
+}
+
+/// 감사 로그 — 역할 변경·검토·삭제·거부·재개봉·권한 이양 등 주요 변경 이력
+model AuditLog {
+  id          String   @id @default(cuid())
+  companyCode String   @db.VarChar(32)
+  actorId     String   @db.VarChar(40)
+  actorName   String   @db.VarChar(80)
+  action      String   @db.VarChar(40)
+  targetType  String   @db.VarChar(20)
+  targetId    String?  @db.VarChar(64)
+  detail      String?  @db.Text
+  createdAt   DateTime @default(now()) @db.Timestamptz(6)
+
+  @@index([companyCode, createdAt])
+  @@map("audit_logs")
 }

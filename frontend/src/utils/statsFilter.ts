@@ -6,7 +6,8 @@ export type StatsFilterKey =
   | 'started'
   | 'submitted'
   | 'completed'
-  | 'rejected';
+  | 'rejected'
+  | 'declined';
 
 export const STATS_FILTER_LABEL: Record<StatsFilterKey, string> = {
   all: '전체',
@@ -15,6 +16,7 @@ export const STATS_FILTER_LABEL: Record<StatsFilterKey, string> = {
   submitted: '검토 대기',
   completed: '완료',
   rejected: '반려',
+  declined: '거부됨',
 };
 
 export const STATS_FILTER_TO_STATUS: Record<StatsFilterKey, QuestStatus | undefined> = {
@@ -24,6 +26,7 @@ export const STATS_FILTER_TO_STATUS: Record<StatsFilterKey, QuestStatus | undefi
   submitted: QuestStatus.SUBMITTED,
   completed: QuestStatus.COMPLETED,
   rejected: QuestStatus.REJECTED,
+  declined: QuestStatus.DECLINED,
 };
 
 export function countForFilter(stats: QuestStats, key: StatsFilterKey): number {
@@ -40,6 +43,8 @@ export function countForFilter(stats: QuestStats, key: StatsFilterKey): number {
       return stats.completed;
     case 'rejected':
       return stats.rejected;
+    case 'declined':
+      return stats.declined;
     default:
       return 0;
   }
@@ -52,6 +57,7 @@ export const STATS_FILTER_KEYS: StatsFilterKey[] = [
   'started',
   'pending',
   'rejected',
+  'declined',
 ];
 
 export function assigneeStatsToQuestStats(row: {
@@ -61,6 +67,7 @@ export function assigneeStatsToQuestStats(row: {
   submitted: number;
   completed: number;
   rejected: number;
+  declined: number;
   completionRate: number;
 }): QuestStats {
   return {
@@ -70,6 +77,7 @@ export function assigneeStatsToQuestStats(row: {
     submitted: row.submitted,
     completed: row.completed,
     rejected: row.rejected,
+    declined: row.declined,
     completionRate: row.completionRate,
   };
 }

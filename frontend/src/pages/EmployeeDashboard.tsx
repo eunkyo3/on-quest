@@ -27,6 +27,15 @@ export default function EmployeeDashboard() {
 
   return (
     <div>
+      <section className="card role-banner role-banner-employee">
+        <div>
+          <h2 style={{ margin: 0 }}>내 온보딩 퀘스트</h2>
+          <p className="text-muted" style={{ margin: '0.35rem 0 0' }}>
+            배정된 퀘스트를 착수·제출하고, 수행이 어려운 퀘스트는 사유와 함께 거부할 수 있습니다.
+          </p>
+        </div>
+      </section>
+
       <div className="tab-row" role="tablist" aria-label="사원 메뉴">
         <button
           type="button"
@@ -104,7 +113,7 @@ export default function EmployeeDashboard() {
             </div>
           </section>
 
-          {error && <div className="feedback">⚠ {error}</div>}
+          {error && <div className="feedback">{error}</div>}
           {loading ? (
             <div className="empty">불러오는 중…</div>
           ) : (

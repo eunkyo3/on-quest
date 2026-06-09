@@ -8,12 +8,10 @@ import { useAuthStore } from './auth/store/authStore';
 import { ToastContainer } from './components/ToastContainer';
 import AdminDashboard from './pages/AdminDashboard';
 import EmployeeDashboard from './pages/EmployeeDashboard';
+import SuperAdminDashboard from './pages/SuperAdminDashboard';
 import QuestDetailPage from './pages/QuestDetailPage';
 import SettingsPage from './auth/pages/SettingsPage';
-
-function homePathForUser(role: string | undefined): string {
-  return role === 'admin' ? '/admin' : '/employee';
-}
+import { ROLES, ROLE_LABEL, homePathForRole } from './types/role';
 
 export default function App() {
   const { user, accessToken, hydrate, isHydrated, logout } = useAuthStore();
@@ -27,29 +25,52 @@ export default function App() {
     return <div className="empty">세션을 확인하는 중…</div>;
   }
 
-  const roleLabel = user?.role === 'admin' ? '관리자' : '사원';
+  const roleLabel = user ? ROLE_LABEL[user.role] ?? '사용자' : '';
+  const navLinkClass = ({ isActive }: { isActive: boolean }) => (isActive ? 'active' : '');
 
   return (
     <>
       <ToastContainer />
       <header className="app-header">
-        <h1>🎮 On-Quest</h1>
+        <h1>On-Quest</h1>
         {accessToken && user ? (
           <nav>
-            <NavLink to="/settings" className={({ isActive }) => (isActive ? 'active' : '')}>
+            {user.role === ROLES.SUPERADMIN && (
+              <>
+                <NavLink to="/superadmin" className={navLinkClass}>
+                  사용자 관리
+                </NavLink>
+                <NavLink to="/admin" className={navLinkClass}>
+                  퀘스트 관리
+                </NavLink>
+              </>
+            )}
+            {user.role === ROLES.ADMIN && (
+              <NavLink to="/admin" className={navLinkClass}>
+                퀘스트 관리
+              </NavLink>
+            )}
+            {user.role === ROLES.EMPLOYEE && (
+              <NavLink to="/employee" className={navLinkClass}>
+                내 퀘스트
+              </NavLink>
+            )}
+            <NavLink to="/settings" className={navLinkClass}>
               설정
             </NavLink>
-            <span className="user-chip">{user.name} ({roleLabel})</span>
+            <span className="user-chip">
+              {user.name} · {roleLabel}
+            </span>
             <button type="button" className="ghost" onClick={logout}>
               로그아웃
             </button>
           </nav>
         ) : (
           <nav>
-            <NavLink to="/login" className={({ isActive }) => (isActive ? 'active' : '')}>
+            <NavLink to="/login" className={navLinkClass}>
               로그인
             </NavLink>
-            <NavLink to="/signup" className={({ isActive }) => (isActive ? 'active' : '')}>
+            <NavLink to="/signup" className={navLinkClass}>
               회원가입
             </NavLink>
           </nav>
@@ -61,7 +82,7 @@ export default function App() {
             path="/"
             element={(
               <Navigate
-                to={accessToken ? homePathForUser(user?.role) : '/login'}
+                to={accessToken ? homePathForRole(user?.role) : '/login'}
                 replace
               />
             )}
@@ -71,7 +92,7 @@ export default function App() {
           <Route
             path="/employee"
             element={(
-              <RoleRoute allowedRole="employee">
+              <RoleRoute allowedRoles={['employee']}>
                 <EmployeeDashboard />
               </RoleRoute>
             )}
@@ -79,7 +100,7 @@ export default function App() {
           <Route
             path="/employee/quests/:id"
             element={(
-              <RoleRoute allowedRole="employee">
+              <RoleRoute allowedRoles={['employee']}>
                 <QuestDetailPage mode="employee" listPath="/employee" />
               </RoleRoute>
             )}
@@ -87,7 +108,7 @@ export default function App() {
           <Route
             path="/admin"
             element={(
-              <RoleRoute allowedRole="admin">
+              <RoleRoute allowedRoles={['admin', 'superadmin']}>
                 <AdminDashboard />
               </RoleRoute>
             )}
@@ -95,8 +116,16 @@ export default function App() {
           <Route
             path="/admin/quests/:id"
             element={(
-              <RoleRoute allowedRole="admin">
+              <RoleRoute allowedRoles={['admin', 'superadmin']}>
                 <QuestDetailPage mode="admin" listPath="/admin" />
+              </RoleRoute>
+            )}
+          />
+          <Route
+            path="/superadmin"
+            element={(
+              <RoleRoute allowedRoles={['superadmin']}>
+                <SuperAdminDashboard />
               </RoleRoute>
             )}
           />
@@ -114,7 +143,7 @@ export default function App() {
             path="*"
             element={(
               <Navigate
-                to={accessToken ? homePathForUser(user?.role) : '/login'}
+                to={accessToken ? homePathForRole(user?.role) : '/login'}
                 replace
               />
             )}

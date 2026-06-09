@@ -266,6 +266,74 @@ label { display: block; margin-bottom: 0.35rem; font-weight: 600; font-size: 0.9
 .data-table tbody tr:hover { background: var(--surface-alt); }
 .mono { font-family: ui-monospace, monospace; font-size: 0.82rem; }
 
+/* 퀘스트 테이블 (카드 대체) */
+.quest-table tbody tr.quest-row { cursor: default; vertical-align: top; }
+.quest-table .quest-row-title { font-weight: 600; color: var(--text); }
+.quest-table .quest-row-title:hover { color: var(--primary); }
+.quest-table tr.quest-row-expanded { background: var(--surface-alt); }
+.quest-table tr.quest-row-expanded:hover { background: var(--surface-alt); }
+.quest-table tr.quest-row-detail:hover { background: transparent; }
+.quest-row-detail > td { background: var(--surface-alt); padding: 0; border-bottom: 2px solid var(--border); }
+.quest-row-detail-body { padding: 1rem 1.25rem 1.25rem; }
+.quest-row-desc {
+  margin: 0 0 0.75rem;
+  color: var(--text);
+  font-size: 0.92rem;
+  line-height: 1.5;
+  white-space: pre-wrap;
+}
+.overdue-text { color: var(--danger); font-weight: 600; }
+
+/* 역할별 화면 식별 배너 */
+.role-banner {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+  border-left-width: 6px;
+  border-left-style: solid;
+}
+.role-banner-employee { border-left-color: var(--info); }
+.role-banner-admin { border-left-color: var(--primary); }
+.role-banner-superadmin { border-left-color: var(--warning); }
+.role-banner h2 { font-size: 1.15rem; }
+.role-banner-counts { display: flex; gap: 1.25rem; }
+.role-banner-counts > div { display: flex; flex-direction: column; align-items: center; }
+.role-banner-counts .value { font-size: 1.5rem; font-weight: 700; }
+.role-banner-counts .label { font-size: 0.78rem; color: var(--text-muted); }
+
+/* 역할 배지 */
+.role-pill {
+  display: inline-block;
+  padding: 0.15rem 0.6rem;
+  border-radius: 999px;
+  font-size: 0.75rem;
+  font-weight: 700;
+  border: 1px solid var(--border);
+}
+.role-pill-superadmin { background: #fef3c7; color: #92400e; border-color: #fcd34d; }
+.role-pill-admin { background: #e0e7ff; color: #3730a3; border-color: #c7d2fe; }
+.role-pill-employee { background: var(--surface-alt); color: var(--text-muted); }
+
+/* 거부 사유·사원 설명 등 보조 안내 박스 */
+.feedback-muted {
+  background: var(--surface-alt);
+  border-left-color: var(--text-muted);
+  color: var(--text);
+}
+
+.quest-detail-card .quest-detail-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  gap: 0.75rem;
+}
+.quest-detail-desc {
+  margin: 0.85rem 0;
+  white-space: pre-wrap;
+  line-height: 1.55;
+}
+
 .empty {
   padding: 2rem;
   text-align: center;

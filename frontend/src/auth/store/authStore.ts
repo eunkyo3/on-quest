@@ -19,6 +19,7 @@ interface AuthState {
   signup: (payload: SignUpPayload) => Promise<void>;
   logout: () => void;
   updateProfile: (payload: UpdateProfilePayload) => Promise<void>;
+  patchUser: (partial: Partial<AuthUser>) => void;
   touchActivity: () => void;
 }
 
@@ -98,6 +99,14 @@ export const useAuthStore = create<AuthState>((set, get) => ({
     } catch (e) {
       throw new Error(getApiErrorMessage(e, '프로필 저장에 실패했습니다.'));
     }
+  },
+
+  patchUser: (partial) => {
+    const current = get().user;
+    if (!current) return;
+    const next = { ...current, ...partial };
+    localStorage.setItem(USER_KEY, JSON.stringify(next));
+    set({ user: next });
   },
 
   touchActivity: () => {

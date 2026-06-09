@@ -24,6 +24,8 @@ export type N8nEventType =
   | 'quest.created'
   | 'quest.proof_uploaded'
   | 'quest.reviewed'
+  | 'quest.declined'
+  | 'quest.reopened'
   | 'quest.deadline_soon'
   | 'quest.deadline_overdue';
 

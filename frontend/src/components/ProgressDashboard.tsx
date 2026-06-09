@@ -23,7 +23,7 @@ const STAT_COLORS: Partial<Record<StatsFilterKey, string>> = {
 
 export function ProgressDashboard({
   stats,
-  title = '📊 나의 퀘스트 달성률',
+  title = '나의 퀘스트 달성률',
   activeFilter,
   onFilterClick,
 }: Props) {
@@ -34,6 +34,7 @@ export function ProgressDashboard({
     submitted: 0,
     completed: 0,
     rejected: 0,
+    declined: 0,
     completionRate: 0,
   };
 

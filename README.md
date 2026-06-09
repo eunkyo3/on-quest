@@ -75,6 +75,7 @@ Docker 환경에서 `VITE_API_BASE_URL`을 비우면 **동일 origin**(`http://l
 | `2` | `SUBMITTED` | 검토 대기 | 증빙 제출 후 관리자 검토 대기 |
 | `3` | `COMPLETED` | 완료 | 관리자 승인 |
 | `4` | `REJECTED` | 반려 | 관리자 반려 (피드백 필수) |
+| `5` | `DECLINED` | 거부됨 | 사원이 수행 자체를 거부 (사유 필수) |
 
 > 기존 DB(0~3 코드)를 쓰던 경우 `prisma migrate deploy`로 `20260517120000_quest_status_v2` 마이그레이션이 자동 적용됩니다.
 
@@ -82,8 +83,17 @@ Docker 환경에서 `VITE_API_BASE_URL`을 비우면 **동일 origin**(`http://l
 
 | 역할 | 주요 기능 |
 | --- | --- |
-| **admin** | 퀘스트 발행·**수정·삭제(대기만)**, 담당자 선택, **검토 대기** 목록 검토, 증빙 미리보기/다운로드, 전체·담당자별 통계, 목록 필터·페이징 |
-| **employee** | 배정 퀘스트 조회, **착수**, 증빙 + 선택 설명 제출, 반려 후 재제출, 상세·다운로드 |
+| **superadmin** | 회사코드 **최초 가입자** 자동 부여. 구성원 **역할 관리(신입사원↔관리자)**, 전사 퀘스트 현황. 관리자 기능의 상위 집합(퀘스트 발행·검토도 가능) |
+| **admin** | 퀘스트 발행·**수정·삭제(대기·거부됨)**, 담당자 선택, **검토 대기** 목록 검토, 증빙 미리보기/다운로드, 전체·담당자별 통계, 목록 필터·페이징 |
+| **employee** | 배정 퀘스트 조회, **착수**, 증빙 + 선택 설명 제출, **검토 전 수정 재제출**, 반려 후 재제출, **퀘스트 거부(사유 필수)**, 상세·다운로드 |
+
+> **역할 부여**: 회사코드의 첫 가입자는 `superadmin`이 되고, 이후 가입자는 모두 `employee`로 고정됩니다. `admin`은 슈퍼관리자가 사용자 관리 화면에서 승격합니다(회원가입 시 역할 선택 없음).
+>
+> **퀘스트 뷰**: 목록은 카드가 아닌 **테이블**로 표시하며, 행을 펼치면 그 자리에서 착수·제출·거부·검토를 수행합니다.
+>
+> **거부 처리**: 거부된 퀘스트는 관리자가 **재개봉**(대기로 복귀, 같은/다른 담당자)하거나 삭제합니다. 재제출 시 이전 반려 피드백은 초기화됩니다.
+>
+> **완료율**: `completionRate = 완료 / (전체 − 거부됨)` — 사원이 거부한 건은 분모에서 제외합니다.
 
 ### 일반적인 흐름
 
@@ -124,7 +134,7 @@ Docker 환경에서 `VITE_API_BASE_URL`을 비우면 **동일 origin**(`http://l
 | 증빙 미리보기 | 관리자·담당자 `GET …/proof/preview` (Blob) |
 | 담당자 표시 | 카드에 `assigneeName` + Slack ID |
 | 인증 | JWT access + refresh, 401 시 자동 갱신, 무활동 로그아웃 |
-| 역할 라우팅 | `RoleRoute` (`/admin`, `/employee` 분리) |
+| 역할 라우팅 | `RoleRoute` (`/superadmin`, `/admin`, `/employee` 분리, 역할별 배너로 화면 구분) |
 
 ---
 
@@ -248,12 +258,23 @@ Base: `/api` · 인증: `Authorization: Bearer <accessToken>`
 | PATCH | `/quests/:id` | admin | **수정** (대기만: title, description, deadline) |
 | DELETE | `/quests/:id` | admin | **삭제** (대기만) |
 | POST | `/quests/:id/start` | assignee | **착수** |
+| POST | `/quests/:id/decline` | assignee | **거부** (대기·착수만, `{ reason }` 필수) |
+| POST | `/quests/:id/reopen` | admin | **재개봉** (거부됨→대기, `{ assigneeId? }` 로 재배정) |
 | POST | `/quests/:id/proof` | assignee | 증빙 업로드 (`file`, `submissionNote`) |
 | GET | `/quests/:id/proof` | all* | 다운로드 |
 | GET | `/quests/:id/proof/preview` | all* | 미리보기 (inline/새 탭) |
 | PATCH | `/quests/:id/review` | admin | 검토 `{ status: 3\|4, feedback? }` (반려 시 feedback 필수) |
 
 \* 같은 `companyCode` 내 admin 또는 해당 `assigneeId`
+
+### 사용자 관리 `/users` (JWT · superadmin 전용)
+
+| Method | Path | 설명 |
+| --- | --- | --- |
+| GET | `/users` | 같은 회사 구성원 목록(역할 포함) |
+| GET | `/users/audit-logs?limit=` | 감사 로그(역할 변경·검토·삭제·거부·재개봉·이양) |
+| PATCH | `/users/:id/role` | 역할 변경 `{ role: 'admin' \| 'employee' }` (본인·슈퍼관리자 변경 불가) |
+| POST | `/users/:id/transfer-ownership` | 슈퍼관리자 권한 이양(본인→admin 강등, 대상→superadmin) |
 
 ### 증빙 공유 (JWT 없음)
 
@@ -329,6 +350,10 @@ cd frontend && npm install && npm run dev
 | 항목 | 구현 |
 | --- | --- |
 | API 인증 | JWT access + refresh, 역할·`companyCode` 격리 |
+| 역할 즉시 반영 | JwtStrategy가 매 요청마다 DB의 현재 role을 읽어 검증 → 승격/강등이 토큰 만료를 기다리지 않고 즉시 적용, 삭제된 계정 토큰 무효화 |
+| 슈퍼관리자 유일성 | `users(companyCode) WHERE role='superadmin'` 부분 유니크 인덱스로 동시 최초 가입 경합 방지 |
+| 레이트리밋 | 전역 ThrottlerGuard(120/분) + `/auth/login`·`/auth/signup` 10/분 |
+| 감사 로그 | 역할 변경·검토·삭제·거부·재개봉·이양을 `audit_logs`에 기록 |
 | n8n 웹훅 | HMAC-SHA256, 타임스탬프 ±5분 |
 | 증빙 공유 | HMAC URL, TTL, `timingSafeEqual` |
 | 비밀번호 | bcrypt |
@@ -337,7 +362,7 @@ cd frontend && npm install && npm run dev
 
 **운영 체크리스트:** 시크릿 교체, `API_PUBLIC_URL` HTTPS, n8n Basic Auth, 증빙 TTL 조정.
 
-**알려진 MVP 타협:** 회원가입 시 `admin` role 클라이언트 지정(데모용), refresh/localStorage, fire-and-forget 웹훅, BLOB + memoryStorage 동시 업로드 시 메모리 부담.
+**알려진 MVP 타협:** 회사코드 첫 가입자=슈퍼관리자(서버 결정), refresh/localStorage, fire-and-forget 웹훅, BLOB + memoryStorage 동시 업로드 시 메모리 부담.
 
 ---
 
@@ -375,6 +400,19 @@ npx prisma studio
 ## 앞으로 진행할 부분
 
 현재 MVP 이후 우선순위를 정리한 로드맵입니다.
+
+### 최근 반영 완료 (2026-06)
+
+- **역할 체계**: 회사코드 최초 가입자=슈퍼관리자, 이후 신입사원 고정. 슈퍼관리자 사용자 관리·권한 이양.
+- **역할 즉시 반영**: JwtStrategy가 매 요청 DB role 검증(승격/강등 즉시).
+- **슈퍼관리자 경합 방지**: 부분 유니크 인덱스.
+- **퀘스트 거부/재개봉**: 거부됨 상태 + 사유, 관리자 재개봉·재배정.
+- **검토 전 재제출**: 피드백 초기화.
+- **테이블 뷰**: 카드 → 테이블(행 펼치기).
+- **감사 로그**: `audit_logs` + 슈퍼관리자 조회 화면.
+- **레이트리밋**: 전역 + 인증 엔드포인트.
+- **테스트/CI**: jest 단위 테스트 + GitHub Actions(typecheck·test·build·prisma validate).
+
 
 ### 보안·인증 (우선)
 

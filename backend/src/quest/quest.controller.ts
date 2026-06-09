@@ -18,22 +18,26 @@ import { FileInterceptor } from '@nestjs/platform-express';
 import type { Response } from 'express';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 import { CurrentUser } from '../common/decorators/current-user.decorator';
+import { Roles } from '../common/decorators/roles.decorator';
+import { RolesGuard } from '../common/guards/roles.guard';
+import { ROLES } from '../common/roles';
 import type { QuestJwtUser } from './quest-auth.types';
 import { CreateQuestDto } from './dto/create-quest.dto';
+import { DeclineQuestDto } from './dto/decline-quest.dto';
+import { ReopenQuestDto } from './dto/reopen-quest.dto';
 import { QuestListQueryDto } from './dto/quest-list-query.dto';
 import { ReviewQuestDto } from './dto/review-quest.dto';
 import { UpdateQuestDto } from './dto/update-quest.dto';
-import { AdminRoleGuard } from './guards/admin-role.guard';
 import { buildContentDisposition } from '../common/utils/content-disposition';
 import { QuestService } from './quest.service';
 
 @Controller('quests')
-@UseGuards(JwtAuthGuard)
+@UseGuards(JwtAuthGuard, RolesGuard)
 export class QuestController {
   constructor(private readonly questService: QuestService) {}
 
   @Post()
-  @UseGuards(AdminRoleGuard)
+  @Roles(ROLES.ADMIN, ROLES.SUPERADMIN)
   async createQuest(
     @Body() dto: CreateQuestDto,
     @CurrentUser() user: QuestJwtUser,
@@ -55,13 +59,13 @@ export class QuestController {
   }
 
   @Get('stats/by-assignee')
-  @UseGuards(AdminRoleGuard)
+  @Roles(ROLES.ADMIN, ROLES.SUPERADMIN)
   async statsByAssignee(@CurrentUser() user: QuestJwtUser) {
     return this.questService.getStatsByAssignee(user);
   }
 
   @Get('assignable-employees')
-  @UseGuards(AdminRoleGuard)
+  @Roles(ROLES.ADMIN, ROLES.SUPERADMIN)
   async assignableEmployees(@CurrentUser() user: QuestJwtUser) {
     return this.questService.listAssignableEmployees(user);
   }
@@ -72,7 +76,7 @@ export class QuestController {
   }
 
   @Patch(':id')
-  @UseGuards(AdminRoleGuard)
+  @Roles(ROLES.ADMIN, ROLES.SUPERADMIN)
   async updateQuest(
     @Param('id') id: string,
     @Body() dto: UpdateQuestDto,
@@ -82,7 +86,7 @@ export class QuestController {
   }
 
   @Delete(':id')
-  @UseGuards(AdminRoleGuard)
+  @Roles(ROLES.ADMIN, ROLES.SUPERADMIN)
   async deleteQuest(
     @Param('id') id: string,
     @CurrentUser() user: QuestJwtUser,
@@ -97,6 +101,25 @@ export class QuestController {
     @CurrentUser() user: QuestJwtUser,
   ) {
     return this.questService.startQuest(id, user);
+  }
+
+  @Post(':id/decline')
+  async declineQuest(
+    @Param('id') id: string,
+    @Body() dto: DeclineQuestDto,
+    @CurrentUser() user: QuestJwtUser,
+  ) {
+    return this.questService.declineQuest(id, dto, user);
+  }
+
+  @Post(':id/reopen')
+  @Roles(ROLES.ADMIN, ROLES.SUPERADMIN)
+  async reopenQuest(
+    @Param('id') id: string,
+    @Body() dto: ReopenQuestDto,
+    @CurrentUser() user: QuestJwtUser,
+  ) {
+    return this.questService.reopenQuest(id, dto, user);
   }
 
   @Post(':id/proof')
@@ -162,7 +185,7 @@ export class QuestController {
   }
 
   @Patch(':id/review')
-  @UseGuards(AdminRoleGuard)
+  @Roles(ROLES.ADMIN, ROLES.SUPERADMIN)
   async reviewQuest(
     @Param('id') id: string,
     @Body() dto: ReviewQuestDto,

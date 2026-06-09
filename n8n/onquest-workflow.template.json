@@ -35,7 +35,9 @@
             { "value2": "quest.proof_uploaded" },
             { "value2": "quest.reviewed" },
             { "value2": "quest.deadline_soon" },
-            { "value2": "quest.deadline_overdue" }
+            { "value2": "quest.deadline_overdue" },
+            { "value2": "quest.declined" },
+            { "value2": "quest.reopened" }
           ]
         }
       },
@@ -104,6 +106,30 @@
     },
     {
       "parameters": {
+        "channel": "#onboarding",
+        "text": "=사원이 퀘스트 수행을 거부했습니다.\n• 퀘스트: {{ $json.data.title }}\n• 담당: {{ $json.data.assigneeName || $json.data.assigneeId }}\n• 사유: {{ $json.data.declineReason || '(없음)' }}\n• 발행: {{ $json.data.publisherName || $json.data.publisherSlackMemberId }}",
+        "otherOptions": {}
+      },
+      "id": "slack-declined",
+      "name": "Slack — Declined",
+      "type": "n8n-nodes-base.slack",
+      "typeVersion": 2.2,
+      "position": [920, 860]
+    },
+    {
+      "parameters": {
+        "channel": "#onboarding",
+        "text": "=거부된 퀘스트가 다시 열렸습니다.\n• 퀘스트: {{ $json.data.title }}\n• 마감: {{ $json.data.deadlineDisplay }}\n• 담당: {{ $json.data.assigneeName || $json.data.assigneeId }}{{ $json.data.reassigned ? ' (재배정됨)' : '' }}",
+        "otherOptions": {}
+      },
+      "id": "slack-reopened",
+      "name": "Slack — Reopened",
+      "type": "n8n-nodes-base.slack",
+      "typeVersion": 2.2,
+      "position": [920, 1000]
+    },
+    {
+      "parameters": {
         "respondWith": "json",
         "responseBody": "={ \"ok\": true }"
       },
@@ -123,14 +149,18 @@
         [{ "node": "Slack — Proof Uploaded", "type": "main", "index": 0 }],
         [{ "node": "Slack — Reviewed", "type": "main", "index": 0 }],
         [{ "node": "Slack — Deadline Soon", "type": "main", "index": 0 }],
-        [{ "node": "Slack — Deadline Overdue", "type": "main", "index": 0 }]
+        [{ "node": "Slack — Deadline Overdue", "type": "main", "index": 0 }],
+        [{ "node": "Slack — Declined", "type": "main", "index": 0 }],
+        [{ "node": "Slack — Reopened", "type": "main", "index": 0 }]
       ]
     },
     "Slack — Created": { "main": [[{ "node": "Respond", "type": "main", "index": 0 }]] },
     "Slack — Proof Uploaded": { "main": [[{ "node": "Respond", "type": "main", "index": 0 }]] },
     "Slack — Reviewed": { "main": [[{ "node": "Respond", "type": "main", "index": 0 }]] },
     "Slack — Deadline Soon": { "main": [[{ "node": "Respond", "type": "main", "index": 0 }]] },
-    "Slack — Deadline Overdue": { "main": [[{ "node": "Respond", "type": "main", "index": 0 }]] }
+    "Slack — Deadline Overdue": { "main": [[{ "node": "Respond", "type": "main", "index": 0 }]] },
+    "Slack — Declined": { "main": [[{ "node": "Respond", "type": "main", "index": 0 }]] },
+    "Slack — Reopened": { "main": [[{ "node": "Respond", "type": "main", "index": 0 }]] }
   },
   "active": false,
   "settings": {},

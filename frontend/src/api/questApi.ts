@@ -3,10 +3,12 @@ import type {
   AssignableEmployee,
   AssigneeQuestStats,
   CreateQuestPayload,
+  DeclineQuestPayload,
   PaginatedQuests,
   Quest,
   QuestListParams,
   QuestStats,
+  ReopenQuestPayload,
   ReviewQuestPayload,
   UpdateQuestPayload,
 } from '../types/quest';
@@ -128,6 +130,16 @@ export const questApi = {
 
   start: async (id: string): Promise<Quest> => {
     const { data } = await api.post<Quest>(`/quests/${id}/start`);
+    return data;
+  },
+
+  decline: async (id: string, payload: DeclineQuestPayload): Promise<Quest> => {
+    const { data } = await api.post<Quest>(`/quests/${id}/decline`, payload);
+    return data;
+  },
+
+  reopen: async (id: string, payload: ReopenQuestPayload = {}): Promise<Quest> => {
+    const { data } = await api.post<Quest>(`/quests/${id}/reopen`, payload);
     return data;
   },
 

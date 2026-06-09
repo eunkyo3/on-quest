@@ -1,4 +1,4 @@
-import { IsEmail, IsIn, IsNotEmpty, IsString, Matches, MaxLength, MinLength } from 'class-validator';
+import { IsEmail, IsNotEmpty, IsString, Matches, MaxLength, MinLength } from 'class-validator';
 
 export class SignUpDto {
   @IsEmail({}, { message: '유효한 이메일을 입력하세요.' })
@@ -25,8 +25,4 @@ export class SignUpDto {
   @IsNotEmpty({ message: '회사코드는 필수입니다.' })
   @MaxLength(32)
   companyCode!: string;
-
-  @IsString()
-  @IsIn(['employee', 'admin'])
-  role: 'employee' | 'admin' = 'employee';
 }

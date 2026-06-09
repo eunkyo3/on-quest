@@ -11,7 +11,6 @@ export default function SignupPage() {
   const [password, setPassword] = useState('');
   const [slackMemberId, setSlackMemberId] = useState('');
   const [companyCode, setCompanyCode] = useState('');
-  const [role, setRole] = useState<'employee' | 'admin'>('employee');
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
 
@@ -27,10 +26,10 @@ export default function SignupPage() {
         password,
         slackMemberId,
         companyCode,
-        role,
       });
-      const home = role === 'admin' ? '/admin' : '/employee';
-      navigate(home, { replace: true });
+      // 가입 후 역할은 서버가 결정(첫 가입자=슈퍼관리자, 이후=신입사원).
+      // 루트로 보내면 App이 역할에 맞는 홈으로 이동시킨다.
+      navigate('/', { replace: true });
     } catch (err) {
       const message = err instanceof Error ? err.message : '회원가입에 실패했습니다.';
       setError(message);
@@ -43,7 +42,10 @@ export default function SignupPage() {
     <main className="auth-shell">
       <section className="card auth-card">
         <h2>회원가입</h2>
-        <p className="auth-description">Slack 멤버 ID와 회사코드는 필수입니다.</p>
+        <p className="auth-description">
+          Slack 멤버 ID와 회사코드는 필수입니다. 회사코드의 최초 가입자는 슈퍼관리자가
+          되어 구성원의 역할을 관리하고, 이후 가입자는 신입사원으로 등록됩니다.
+        </p>
         <form onSubmit={onSubmit}>
           <div style={{ marginBottom: '0.75rem' }}>
             <label htmlFor="name">이름</label>
@@ -64,13 +66,6 @@ export default function SignupPage() {
           <div style={{ marginBottom: '0.75rem' }}>
             <label htmlFor="companyCode">회사코드</label>
             <input id="companyCode" value={companyCode} onChange={(e) => setCompanyCode(e.target.value)} required />
-          </div>
-          <div style={{ marginBottom: '0.75rem' }}>
-            <label htmlFor="role">역할</label>
-            <select id="role" value={role} onChange={(e) => setRole(e.target.value as 'employee' | 'admin')}>
-              <option value="employee">신입 사원</option>
-              <option value="admin">관리자</option>
-            </select>
           </div>
 
           {error && <div className="field-error">{error}</div>}

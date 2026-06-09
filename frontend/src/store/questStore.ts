@@ -5,9 +5,11 @@ import {
   QuestStatus,
   type AssigneeQuestStats,
   type CreateQuestPayload,
+  type DeclineQuestPayload,
   type Quest,
   type QuestListParams,
   type QuestStats,
+  type ReopenQuestPayload,
   type ReviewQuestPayload,
   type UpdateQuestPayload,
 } from '../types/quest';
@@ -30,6 +32,8 @@ interface QuestState {
   updateQuest: (id: string, payload: UpdateQuestPayload) => Promise<Quest>;
   deleteQuest: (id: string) => Promise<void>;
   startQuest: (id: string) => Promise<Quest>;
+  declineQuest: (id: string, payload: DeclineQuestPayload) => Promise<Quest>;
+  reopenQuest: (id: string, payload?: ReopenQuestPayload) => Promise<Quest>;
   uploadProof: (id: string, file: File, submissionNote?: string) => Promise<Quest>;
   reviewQuest: (id: string, payload: ReviewQuestPayload) => Promise<Quest>;
   upsertQuest: (quest: Quest) => void;
@@ -145,6 +149,32 @@ export const useQuestStore = create<QuestState>((set, get) => ({
       return updated;
     } catch (e) {
       toastErr(e, '착수에 실패했습니다.');
+      throw e;
+    }
+  },
+
+  declineQuest: async (id, payload) => {
+    try {
+      const updated = await questApi.decline(id, payload);
+      get().upsertQuest(updated);
+      await get().fetchStats();
+      useToastStore.getState().push('퀘스트를 거부했습니다.', 'success');
+      return updated;
+    } catch (e) {
+      toastErr(e, '거부 처리에 실패했습니다.');
+      throw e;
+    }
+  },
+
+  reopenQuest: async (id, payload = {}) => {
+    try {
+      const updated = await questApi.reopen(id, payload);
+      get().upsertQuest(updated);
+      await get().fetchStats();
+      useToastStore.getState().push('퀘스트를 재개봉했습니다.', 'success');
+      return updated;
+    } catch (e) {
+      toastErr(e, '재개봉에 실패했습니다.');
       throw e;
     }
   },

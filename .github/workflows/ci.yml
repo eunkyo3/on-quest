@@ -13,6 +13,10 @@ jobs:
     defaults:
       run:
         working-directory: backend
+    env:
+      # prisma generate/validate 는 DB에 접속하지 않고 env 참조만 검증한다.
+      # CI에는 .env 가 없으므로(gitignore) 더미 URL 로 변수만 채워 준다.
+      DATABASE_URL: postgresql://ci:ci@localhost:5432/onquest_ci
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4

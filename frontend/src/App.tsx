@@ -32,6 +32,7 @@ export default function App() {
     <>
       <ToastContainer />
       <header className="app-header">
+        <div className="app-header-inner">
         <h1>On-Quest</h1>
         {accessToken && user ? (
           <nav>
@@ -75,6 +76,7 @@ export default function App() {
             </NavLink>
           </nav>
         )}
+        </div>
       </header>
       <main className="app-shell">
         <Routes>

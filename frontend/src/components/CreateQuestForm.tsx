@@ -95,7 +95,6 @@ export function CreateQuestForm() {
 
   return (
     <section className="card">
-      <h2 className="section-title" style={{ marginTop: 0 }}>새 퀘스트 생성</h2>
       <form onSubmit={handleSubmit} noValidate>
         <div style={{ marginBottom: '0.75rem' }}>
           <label htmlFor="title">제목</label>

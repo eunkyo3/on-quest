@@ -139,7 +139,7 @@ export default function SuperAdminDashboard() {
 
       <section>
         <h2 className="section-title">구성원 역할 관리</h2>
-        {error && <div className="feedback">{error}</div>}
+        {error && <div className="alert-error">{error}</div>}
         {loading ? (
           <div className="empty">불러오는 중…</div>
         ) : users.length === 0 ? (
@@ -154,8 +154,7 @@ export default function SuperAdminDashboard() {
                   <th scope="col">Slack ID</th>
                   <th scope="col">역할</th>
                   <th scope="col">가입일</th>
-                  <th scope="col">역할 변경</th>
-                  <th scope="col">권한 이양</th>
+                  <th scope="col">관리</th>
                 </tr>
               </thead>
               <tbody>
@@ -177,38 +176,37 @@ export default function SuperAdminDashboard() {
                       <td>
                         {isSuper ? (
                           <span className="text-muted">—</span>
-                        ) : u.role === ROLES.EMPLOYEE ? (
-                          <button
-                            type="button"
-                            className="ghost"
-                            disabled={busy}
-                            onClick={() => void handleRoleChange(u, 'admin')}
-                          >
-                            관리자로 지정
-                          </button>
                         ) : (
-                          <button
-                            type="button"
-                            className="ghost"
-                            disabled={busy}
-                            onClick={() => void handleRoleChange(u, 'employee')}
-                          >
-                            신입사원으로 변경
-                          </button>
-                        )}
-                      </td>
-                      <td>
-                        {isSuper ? (
-                          <span className="text-muted">—</span>
-                        ) : (
-                          <button
-                            type="button"
-                            className="ghost"
-                            disabled={busy}
-                            onClick={() => void handleTransfer(u)}
-                          >
-                            이 사람에게 이양
-                          </button>
+                          <div className="user-actions">
+                            {u.role === ROLES.EMPLOYEE ? (
+                              <button
+                                type="button"
+                                className="ghost"
+                                disabled={busy}
+                                onClick={() => void handleRoleChange(u, 'admin')}
+                              >
+                                관리자로 지정
+                              </button>
+                            ) : (
+                              <button
+                                type="button"
+                                className="ghost"
+                                disabled={busy}
+                                onClick={() => void handleRoleChange(u, 'employee')}
+                              >
+                                신입사원으로 변경
+                              </button>
+                            )}
+                            <button
+                              type="button"
+                              className="link-danger"
+                              disabled={busy}
+                              onClick={() => void handleTransfer(u)}
+                              title="이 사람에게 슈퍼관리자 권한을 넘깁니다"
+                            >
+                              권한 이양
+                            </button>
+                          </div>
                         )}
                       </td>
                     </tr>

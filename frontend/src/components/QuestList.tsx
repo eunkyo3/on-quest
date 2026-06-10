@@ -62,9 +62,14 @@ export function QuestList({
               <Fragment key={q.id}>
                 <tr
                   className={expanded ? 'quest-row quest-row-expanded' : 'quest-row'}
+                  onClick={() => setExpandedId(expanded ? null : q.id)}
                 >
                   <td>
-                    <Link to={`${detailBasePath}/${q.id}`} className="quest-row-title">
+                    <Link
+                      to={`${detailBasePath}/${q.id}`}
+                      className="quest-row-title"
+                      onClick={(e) => e.stopPropagation()}
+                    >
                       {q.title}
                     </Link>
                     <div className="meta mono" style={{ fontSize: '0.72rem' }}>
@@ -99,7 +104,10 @@ export function QuestList({
                       type="button"
                       className="ghost"
                       aria-expanded={expanded}
-                      onClick={() => setExpandedId(expanded ? null : q.id)}
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        setExpandedId(expanded ? null : q.id);
+                      }}
                     >
                       {expanded ? '접기' : '펼치기'}
                     </button>

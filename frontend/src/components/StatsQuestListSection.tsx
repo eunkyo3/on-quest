@@ -57,7 +57,7 @@ export function StatsQuestListSection({
       <h3 className="section-title" style={{ fontSize: '1rem' }}>
         {STATS_FILTER_LABEL[filter]} ({quests.length}건)
       </h3>
-      {error && <div className="feedback">{error}</div>}
+      {error && <div className="alert-error">{error}</div>}
       {loading ? (
         <div className="empty">불러오는 중…</div>
       ) : (

@@ -130,7 +130,7 @@ export default function QuestDetailPage({ mode, listPath }: Props) {
   if (!quest) {
     return (
       <div>
-        <p className="feedback">퀘스트를 찾을 수 없습니다.</p>
+        <p className="alert-error">퀘스트를 찾을 수 없습니다.</p>
         <Link to={listPath}>← 목록</Link>
       </div>
     );

@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState } from 'react';
 import { questApi } from '../api/questApi';
 import { CreateQuestForm } from '../components/CreateQuestForm';
 import { Modal } from '../components/Modal';
+import { Pager } from '../components/Pager';
 import { ProgressDashboard } from '../components/ProgressDashboard';
 import { QuestList } from '../components/QuestList';
 import { StatsQuestListSection } from '../components/StatsQuestListSection';
@@ -22,6 +23,7 @@ type Tab = 'work' | 'stats';
 
 export default function AdminDashboard() {
   const [tab, setTab] = useState<Tab>('work');
+  const [showCreate, setShowCreate] = useState(false);
   const [statusFilter, setStatusFilter] = useState<string>('');
   const [statsModalFilter, setStatsModalFilter] = useState<StatsFilterKey | null>(null);
   const [assigneeModal, setAssigneeModal] = useState<AssigneeQuestStats | null>(null);
@@ -132,17 +134,17 @@ export default function AdminDashboard() {
                 <table className="data-table">
                   <thead>
                     <tr>
-                      <th>이름</th>
-                      <th>Slack ID</th>
-                      <th>전체</th>
-                      <th>완료</th>
-                      <th>검토 대기</th>
-                      <th>착수</th>
-                      <th>대기</th>
-                      <th>반려</th>
-                      <th>거부</th>
-                      <th>달성률</th>
-                      <th />
+                      <th scope="col">이름</th>
+                      <th scope="col">Slack ID</th>
+                      <th scope="col">전체</th>
+                      <th scope="col">완료</th>
+                      <th scope="col">검토 대기</th>
+                      <th scope="col">착수</th>
+                      <th scope="col">대기</th>
+                      <th scope="col">반려</th>
+                      <th scope="col">거부</th>
+                      <th scope="col">달성률</th>
+                      <th scope="col" aria-label="상세" />
                     </tr>
                   </thead>
                   <tbody>
@@ -176,51 +178,29 @@ export default function AdminDashboard() {
           </section>
         </div>
       ) : (
-        <>
-          <CreateQuestForm />
-
-          <section className="card filter-bar">
-            <label htmlFor="status-filter">상태 필터</label>
-            <select
-              id="status-filter"
-              value={statusFilter}
-              onChange={(e) => setStatusFilter(e.target.value)}
+        <div className="grid" style={{ gap: '1.25rem' }}>
+          <div>
+            <button
+              type="button"
+              className="collapsible-head"
+              aria-expanded={showCreate}
+              onClick={() => setShowCreate((v) => !v)}
             >
-              <option value="">전체</option>
-              {(Object.values(QuestStatus).filter((v) => typeof v === 'number') as QuestStatus[]).map(
-                (s) => (
-                  <option key={s} value={s}>
-                    {QUEST_STATUS_LABEL[s]}
-                  </option>
-                ),
-              )}
-            </select>
-            <p className="text-muted" style={{ margin: '0.5rem 0 0' }}>
-              총 {total}건 · {page}/{totalPages || 1} 페이지
-            </p>
-            <div className="quest-actions" style={{ marginTop: '0.5rem' }}>
-              <button
-                type="button"
-                className="ghost"
-                disabled={page <= 1 || loading}
-                onClick={() => void fetchQuests({ page: page - 1 })}
-              >
-                이전
-              </button>
-              <button
-                type="button"
-                className="ghost"
-                disabled={page >= totalPages || loading}
-                onClick={() => void fetchQuests({ page: page + 1 })}
-              >
-                다음
-              </button>
-            </div>
-          </section>
+              <span>새 퀘스트 발행</span>
+              <span className="chevron">{showCreate ? '▲ 접기' : '▼ 펼치기'}</span>
+            </button>
+            {showCreate && (
+              <div style={{ marginTop: '0.75rem' }}>
+                <CreateQuestForm />
+              </div>
+            )}
+          </div>
 
           <section>
-            <h2 className="section-title">검토 대기 ({reviewQueue.length}건)</h2>
-            {error && <div className="feedback">{error}</div>}
+            <h2 className="section-title" style={{ marginTop: 0 }}>
+              검토 대기 ({reviewQueue.length}건)
+            </h2>
+            {error && <div className="alert-error">{error}</div>}
             <QuestList
               quests={reviewQueue}
               mode="admin"
@@ -231,14 +211,53 @@ export default function AdminDashboard() {
 
           <section>
             <h2 className="section-title">전체 퀘스트</h2>
+            <section className="card toolbar" style={{ marginBottom: '0.85rem' }}>
+              <div className="toolbar-field">
+                <label htmlFor="status-filter">상태 필터</label>
+                <select
+                  id="status-filter"
+                  className="select-inline"
+                  value={statusFilter}
+                  onChange={(e) => setStatusFilter(e.target.value)}
+                >
+                  <option value="">전체</option>
+                  {(Object.values(QuestStatus).filter((v) => typeof v === 'number') as QuestStatus[]).map(
+                    (s) => (
+                      <option key={s} value={s}>
+                        {QUEST_STATUS_LABEL[s]}
+                      </option>
+                    ),
+                  )}
+                </select>
+              </div>
+              <div className="toolbar-meta">
+                <span className="count">총 {total}건</span>
+                <Pager
+                  page={page}
+                  totalPages={totalPages}
+                  loading={loading}
+                  onPage={(p) => void fetchQuests({ page: p })}
+                />
+              </div>
+            </section>
             <QuestList
               quests={others}
               mode="admin"
               detailBasePath="/admin/quests"
               emptyText="등록된 퀘스트가 없습니다."
             />
+            {totalPages > 1 && (
+              <div className="pager-bottom">
+                <Pager
+                  page={page}
+                  totalPages={totalPages}
+                  loading={loading}
+                  onPage={(p) => void fetchQuests({ page: p })}
+                />
+              </div>
+            )}
           </section>
-        </>
+        </div>
       )}
 
       <Modal

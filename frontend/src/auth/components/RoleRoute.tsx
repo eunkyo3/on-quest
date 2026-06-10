@@ -3,9 +3,6 @@ import { Navigate, useLocation } from 'react-router-dom';
 import { useAuthStore } from '../store/authStore';
 import { homePathForRole } from '../../types/role';
 
-/** @deprecated types/role 의 homePathForRole 사용 권장 (호환용 재노출) */
-export const homeForRole = homePathForRole;
-
 export function RoleRoute({
   allowedRoles,
   children,

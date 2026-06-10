@@ -1,7 +1,7 @@
 import { useState } from 'react';
 import { Link, useLocation, useNavigate } from 'react-router-dom';
 import { useAuthStore } from '../store/authStore';
-import { homeForRole } from '../components/RoleRoute';
+import { homePathForRole } from '../../types/role';
 
 export default function LoginPage() {
   const navigate = useNavigate();
@@ -26,7 +26,7 @@ export default function LoginPage() {
         password,
       });
       const u = useAuthStore.getState().user;
-      const home = homeForRole(u?.role);
+      const home = homePathForRole(u?.role);
       let target = fromState ?? home;
       // 역할에 맞지 않는 복귀 경로면 역할 홈으로 보정한다.
       if (u?.role === 'employee' && !target.startsWith('/employee')) target = home;

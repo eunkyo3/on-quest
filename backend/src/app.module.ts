@@ -5,6 +5,7 @@ import { ThrottlerGuard, ThrottlerModule } from '@nestjs/throttler';
 import { AutomationModule } from './automation/automation.module';
 import { AuditModule } from './audit/audit.module';
 import { AuthModule } from './auth/auth.module';
+import { HealthModule } from './health/health.module';
 import { PrismaModule } from './prisma/prisma.module';
 import { QuestModule } from './quest/quest.module';
 import { UserModule } from './user/user.module';
@@ -19,6 +20,7 @@ import { UserModule } from './user/user.module';
     PrismaModule,
     AuditModule,
     AuthModule,
+    HealthModule,
     QuestModule,
     UserModule,
     AutomationModule,

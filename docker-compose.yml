@@ -77,6 +77,18 @@ services:
       - "3000:3000"
     networks:
       - onquest-net
+    healthcheck:
+      # Node 20 글로벌 fetch 로 /api/health 확인 (curl 미설치 슬림 이미지 대응)
+      test:
+        - "CMD"
+        - "node"
+        - "-e"
+        - "fetch('http://localhost:3000/api/health').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"
+      interval: 15s
+      timeout: 5s
+      retries: 5
+      # 기동 + prisma migrate deploy 시간을 고려해 초기 유예
+      start_period: 30s
 
   frontend:
     build:
@@ -89,7 +101,8 @@ services:
     container_name: on-quest-frontend
     restart: unless-stopped
     depends_on:
-      - backend
+      backend:
+        condition: service_healthy
     ports:
       - "8080:80"
     networks:

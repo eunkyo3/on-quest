@@ -211,6 +211,9 @@ export default function AdminDashboard() {
 
           <section>
             <h2 className="section-title">전체 퀘스트</h2>
+            <p className="text-muted" style={{ margin: '0 0 0.5rem', fontSize: '0.82rem' }}>
+              검토 대기 건은 위 “검토 대기” 섹션에서 확인하세요.
+            </p>
             <section className="card toolbar" style={{ marginBottom: '0.85rem' }}>
               <div className="toolbar-field">
                 <label htmlFor="status-filter">상태 필터</label>
@@ -221,13 +224,13 @@ export default function AdminDashboard() {
                   onChange={(e) => setStatusFilter(e.target.value)}
                 >
                   <option value="">전체</option>
-                  {(Object.values(QuestStatus).filter((v) => typeof v === 'number') as QuestStatus[]).map(
-                    (s) => (
-                      <option key={s} value={s}>
-                        {QUEST_STATUS_LABEL[s]}
-                      </option>
-                    ),
-                  )}
+                  {(Object.values(QuestStatus).filter(
+                    (v) => typeof v === 'number' && v !== QuestStatus.SUBMITTED,
+                  ) as QuestStatus[]).map((s) => (
+                    <option key={s} value={s}>
+                      {QUEST_STATUS_LABEL[s]}
+                    </option>
+                  ))}
                 </select>
               </div>
               <div className="toolbar-meta">

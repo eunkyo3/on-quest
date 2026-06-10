@@ -3,11 +3,12 @@
 신입 사원의 조직 적응을 돕기 위해 **퀘스트** 형태의 과제를 부여하고, 사수(관리자)가 증빙을 검토하며, **n8n**을 통해 **Slack**으로 실시간 알림을 보내는 MVP입니다.
 
 - **멀티 테넌트**: `companyCode` 단위로 사용자·퀘스트 격리
-- **역할 기반 UI**: `admin` / `employee` 대시보드·상세 페이지 분리
-- **퀘스트 v2 상태**: 대기 → 착수 → 검토 대기 → 완료/반려
+- **3단계 역할**: `superadmin`(회사 최초 가입자) / `admin` / `employee` — 화면·권한 분리
+- **퀘스트 v2 상태**: 대기 → 착수 → 검토 대기 → 완료/반려, 사원 **거부** 별도 상태
 - **증빙 저장**: PostgreSQL `bytea` BLOB (건당 최대 10MB)
-- **Slack 연동**: 생성 · 제출 · 검토 · 마감 임박 · 마감 연체 (5종 이벤트)
-- **프론트 UX**: 토스트 알림, 페이징·필터, 드래그앤드롭 제출, 증빙 미리보기, JWT refresh
+- **Slack 연동**: 생성 · 제출 · 검토 · 거부 · 재개봉 · 마감 임박 · 마감 연체 (7종 이벤트)
+- **프론트 UX**: 테이블 목록(행 펼치기), 토스트 알림, 페이징·필터, 드래그앤드롭 제출, 증빙 미리보기, JWT refresh
+- **운영**: 역할 즉시 반영, 레이트리밋, 감사 로그, jest 단위 테스트 + GitHub Actions CI
 
 ---
 
@@ -77,14 +78,14 @@ Docker 환경에서 `VITE_API_BASE_URL`을 비우면 **동일 origin**(`http://l
 | `4` | `REJECTED` | 반려 | 관리자 반려 (피드백 필수) |
 | `5` | `DECLINED` | 거부됨 | 사원이 수행 자체를 거부 (사유 필수) |
 
-> 기존 DB(0~3 코드)를 쓰던 경우 `prisma migrate deploy`로 `20260517120000_quest_status_v2` 마이그레이션이 자동 적용됩니다.
+> 백엔드 기동 시 `prisma migrate deploy`가 자동 실행되어 상태 v2(`quest_status_v2`)·거부 사유(`decline_reason`)·감사 로그/슈퍼관리자 유니크 인덱스(`audit_log_and_superadmin_index`) 등 누적 마이그레이션이 적용됩니다.
 
 ### 역할별 기능
 
 | 역할 | 주요 기능 |
 | --- | --- |
 | **superadmin** | 회사코드 **최초 가입자** 자동 부여. 구성원 **역할 관리(신입사원↔관리자)**, 전사 퀘스트 현황. 관리자 기능의 상위 집합(퀘스트 발행·검토도 가능) |
-| **admin** | 퀘스트 발행·**수정·삭제(대기·거부됨)**, 담당자 선택, **검토 대기** 목록 검토, 증빙 미리보기/다운로드, 전체·담당자별 통계, 목록 필터·페이징 |
+| **admin** | 퀘스트 발행·**수정(대기만)**·**삭제(대기·거부됨)**·**재개봉(거부됨→대기, 재배정)**, 담당자 선택, **검토 대기** 검토, 증빙 미리보기/다운로드, 전체·담당자별 통계, 목록 필터·페이징 |
 | **employee** | 배정 퀘스트 조회, **착수**, 증빙 + 선택 설명 제출, **검토 전 수정 재제출**, 반려 후 재제출, **퀘스트 거부(사유 필수)**, 상세·다운로드 |
 
 > **역할 부여**: 회사코드의 첫 가입자는 `superadmin`이 되고, 이후 가입자는 모두 `employee`로 고정됩니다. `admin`은 슈퍼관리자가 사용자 관리 화면에서 승격합니다(회원가입 시 역할 선택 없음).
@@ -100,25 +101,35 @@ Docker 환경에서 `VITE_API_BASE_URL`을 비우면 **동일 origin**(`http://l
 1. 관리자 퀘스트 생성 → `quest.created` Slack 알림
 2. 사원 **착수** (`POST /quests/:id/start`) → 상태 `1`
 3. 사원 증빙 업로드(+ `submissionNote` 선택) → 상태 `2` → `quest.proof_uploaded` (증빙 공유 URL 포함)
+   - 검토 전(`2`)이면 새 파일·설명으로 **수정 재제출** 가능
 4. 관리자 승인/반려 → `quest.reviewed` (검토자 Slack ID 자동 기록)
-5. 반려 시 사원이 다시 착수·재제출 가능
-6. (백그라운드) 마감 24시간 이내·연체 시 Cron → `quest.deadline_soon` / `quest.deadline_overdue`
+5. 반려 시 사원이 다시 착수·재제출 가능 (이때 이전 피드백은 초기화)
+6. 사원이 수행을 **거부**(`POST /quests/:id/decline`, 사유 필수) → 상태 `5` → `quest.declined`
+   - 관리자 **재개봉**(`POST /quests/:id/reopen`, 담당자 재배정 가능) → 상태 `0` → `quest.reopened`, 또는 삭제
+7. (백그라운드) 마감 24시간 이내·연체 시 Cron → `quest.deadline_soon` / `quest.deadline_overdue`
 
 ### 데이터 모델 요약
 
 **User** (`users`)
 
 - `(email, companyCode)`, `(slackMemberId, companyCode)` 유니크
-- `role`: `admin` | `employee`
+- `role`: `superadmin` | `admin` | `employee`
+- `companyCode` 당 `superadmin` 1명 보장 — 부분 유니크 인덱스 `users(companyCode) WHERE role='superadmin'`
 
 **Quest** (`quests`)
 
 - `id`: 8자 영숫자 (`nanoid`)
+- `status`: 0 대기 / 1 착수 / 2 검토 대기 / 3 완료 / 4 반려 / 5 거부됨
 - `proofData` / `proofMimeType` / `proofFileName`: 증빙 BLOB (목록 API에서 BLOB 제외)
-- `submissionNote`: 선택 설명 (최대 5,000자)
-- `assigneeId`, `publisherSlackMemberId`: Slack 멤버 ID
+- `submissionNote`: 선택 설명 (최대 5,000자), `feedback`: 검토 피드백, `declineReason`: 사원 거부 사유
+- `assigneeId`, `publisherSlackMemberId`, `reviewerId`: Slack 멤버 ID
 - `deadlineSoonNotifiedAt`, `overdueNotifiedAt`: 마감 알림 중복 방지
 - `companyCode`: 테넌트 격리
+
+**AuditLog** (`audit_logs`)
+
+- `companyCode`, `actorId`, `actorName`, `action`, `targetType`, `targetId`, `detail`, `createdAt`
+- 역할 변경·권한 이양·검토(승인/반려)·거부·재개봉·삭제 이력
 
 ---
 
@@ -126,13 +137,15 @@ Docker 환경에서 `VITE_API_BASE_URL`을 비우면 **동일 origin**(`http://l
 
 | 기능 | 경로·구현 |
 | --- | --- |
-| 관리자 대시보드 | `/admin` — 검토 대기 / 전체 퀘스트, 상태 필터, 페이지네이션 |
+| 슈퍼관리자 대시보드 | `/superadmin` — 구성원 역할 관리·권한 이양, 전사 현황, 감사 로그 |
+| 관리자 대시보드 | `/admin` — 검토 대기(전 페이지 별도 조회) / 전체 퀘스트, 상태 필터, 페이지네이션 |
 | 사원 대시보드 | `/employee` — 내 퀘스트, 필터·페이징 |
-| 퀘스트 상세 | `/admin/quests/:id`, `/employee/quests/:id` — 상세·수정(대기)·삭제·검토/제출 UI |
+| 퀘스트 목록 | **테이블**(`QuestList`) — 행 펼치기(`QuestActions`)로 착수·제출·거부·검토 인라인 처리 |
+| 퀘스트 상세 | `/admin/quests/:id`, `/employee/quests/:id` — 상세·수정(대기)·삭제·재개봉·검토/제출 UI |
 | 토스트 알림 | `toastStore` + `ToastContainer` (`alert` 대신) |
 | 증빙 제출 UX | 드래그앤드롭, 이미지 썸네일, 허용 형식 안내 |
 | 증빙 미리보기 | 관리자·담당자 `GET …/proof/preview` (Blob) |
-| 담당자 표시 | 카드에 `assigneeName` + Slack ID |
+| 담당자 표시 | 테이블/상세에 `assigneeName` + Slack ID |
 | 인증 | JWT access + refresh, 401 시 자동 갱신, 무활동 로그아웃 |
 | 역할 라우팅 | `RoleRoute` (`/superadmin`, `/admin`, `/employee` 분리, 역할별 배너로 화면 구분) |
 
@@ -162,6 +175,8 @@ NestJS는 트랜잭션 **성공 후** n8n 웹훅을 **fire-and-forget**으로 �
 | `quest.created` | 새 퀘스트 | `title`, `deadline`, `deadlineDisplay`, `assigneeId`, `publisherSlackMemberId` |
 | `quest.proof_uploaded` | 증빙 제출 | `title`, `fileName`, `proofUrl`, `proofMimeType`, `submissionNote`, `assigneeId`, `publisherSlackMemberId` |
 | `quest.reviewed` | 승인/반려 | `title`, `status`(3 또는 4), `feedback`, `reviewerId`, `assigneeId` |
+| `quest.declined` | 사원 거부 | `title`, `declineReason`, `assigneeId`, `publisherSlackMemberId` |
+| `quest.reopened` | 거부 재개봉 | `title`, `deadlineDisplay`, `assigneeId`, `reassigned`(재배정 여부) |
 | `quest.deadline_soon` | 마감 24h 이내 | `title`, `deadlineDisplay`, `assigneeId`, `publisherSlackMemberId` |
 | `quest.deadline_overdue` | 마감 연체 | 동일 |
 
@@ -196,15 +211,16 @@ cp .env.example .env
 docker compose up -d --build
 ```
 
-백엔드 기동 시 `prisma migrate deploy`가 자동 실행됩니다 (상태 v2·마감 알림 컬럼 포함).
+백엔드 기동 시 `prisma migrate deploy`가 자동 실행됩니다 (상태 v2·거부 사유·감사 로그/슈퍼관리자 인덱스 포함).
 
 ### 3) 동작 확인
 
-1. http://localhost:8080 → 회원가입 (관리자/사원, Slack ID + 회사코드)
-2. 관리자 → 퀘스트 발행
-3. 사원 → **착수** → 증빙 제출
-4. 관리자 → 검토 대기 목록에서 승인/반려
-5. n8n 실행 이력 + Slack 채널 확인
+1. http://localhost:8080 → 회원가입 (Slack ID + 회사코드). **회사코드 첫 가입자는 슈퍼관리자**, 이후 가입자는 신입사원
+2. 슈퍼관리자 → `/superadmin`에서 한 명을 **관리자로 승격** (또는 슈퍼관리자가 직접 발행)
+3. 관리자 → 퀘스트 발행
+4. 사원 → **착수** → 증빙 제출 (또는 사유와 함께 **거부**)
+5. 관리자 → 검토 대기 목록에서 승인/반려, 거부된 건은 **재개봉/삭제**
+6. n8n 실행 이력 + Slack 채널 확인
 
 ---
 
@@ -244,28 +260,33 @@ Base: `/api` · 인증: `Authorization: Bearer <accessToken>`
 | POST | `/auth/login` | 로그인 → 동일 |
 | POST | `/auth/refresh` | `{ refreshToken }` → 새 토큰 쌍 |
 | GET | `/auth/me` | 현재 사용자 (JWT) |
+| PATCH | `/auth/me` | 프로필 수정 (이름·Slack ID·비밀번호) |
+
+> `/auth/login`·`/auth/signup`은 레이트리밋 10회/분이 적용됩니다.
 
 ### 퀘스트 `/quests` (JWT)
 
+> 권한 표기의 **manager** = `admin` + `superadmin`(슈퍼관리자는 관리자 기능의 상위 집합).
+
 | Method | Path | 권한 | 설명 |
 | --- | --- | --- | --- |
-| POST | `/quests` | admin | 발행 |
+| POST | `/quests` | manager | 발행 |
 | GET | `/quests?page=&limit=&status=` | all | **페이지 목록** `{ items, total, page, limit, totalPages }` |
-| GET | `/quests/stats` | all | 통계 (`pending`, `started`, `submitted`, `completed`, `rejected`) |
-| GET | `/quests/stats/by-assignee` | admin | 담당자별 통계 |
-| GET | `/quests/assignable-employees` | admin | 발행 시 사원 목록 |
+| GET | `/quests/stats` | all | 통계 (`pending`, `started`, `submitted`, `completed`, `rejected`, `declined`, `completionRate`) |
+| GET | `/quests/stats/by-assignee` | manager | 담당자별 통계 |
+| GET | `/quests/assignable-employees` | manager | 발행 시 사원 목록 |
 | GET | `/quests/:id` | all | 상세 (`assigneeName` 포함) |
-| PATCH | `/quests/:id` | admin | **수정** (대기만: title, description, deadline) |
-| DELETE | `/quests/:id` | admin | **삭제** (대기만) |
+| PATCH | `/quests/:id` | manager | **수정** (대기만: title, description, deadline) |
+| DELETE | `/quests/:id` | manager | **삭제** (대기·거부됨만) |
 | POST | `/quests/:id/start` | assignee | **착수** |
 | POST | `/quests/:id/decline` | assignee | **거부** (대기·착수만, `{ reason }` 필수) |
-| POST | `/quests/:id/reopen` | admin | **재개봉** (거부됨→대기, `{ assigneeId? }` 로 재배정) |
-| POST | `/quests/:id/proof` | assignee | 증빙 업로드 (`file`, `submissionNote`) |
+| POST | `/quests/:id/reopen` | manager | **재개봉** (거부됨→대기, `{ assigneeId? }` 로 재배정) |
+| POST | `/quests/:id/proof` | assignee | 증빙 업로드 (`file`, `submissionNote`) — 검토 전이면 재제출(피드백 초기화) |
 | GET | `/quests/:id/proof` | all* | 다운로드 |
 | GET | `/quests/:id/proof/preview` | all* | 미리보기 (inline/새 탭) |
-| PATCH | `/quests/:id/review` | admin | 검토 `{ status: 3\|4, feedback? }` (반려 시 feedback 필수) |
+| PATCH | `/quests/:id/review` | manager | 검토 `{ status: 3\|4, feedback? }` (반려 시 feedback 필수) |
 
-\* 같은 `companyCode` 내 admin 또는 해당 `assigneeId`
+\* 같은 `companyCode` 내 manager 또는 해당 `assigneeId`
 
 ### 사용자 관리 `/users` (JWT · superadmin 전용)
 
@@ -288,26 +309,36 @@ Base: `/api` · 인증: `Authorization: Bearer <accessToken>`
 
 ```
 on-quest/
+├── .github/workflows/ci.yml     # CI: typecheck · test · build · prisma validate
 ├── backend/
+│   ├── jest.config.js
 │   ├── prisma/
-│   │   ├── schema.prisma
-│   │   └── migrations/          # status v2, submission_note, …
+│   │   ├── schema.prisma         # User · Quest · AuditLog
+│   │   └── migrations/           # status v2, submission_note, decline_reason, audit_log+superadmin index, …
 │   └── src/
-│       ├── auth/
+│       ├── auth/                 # 컨트롤러·서비스·JwtStrategy(매 요청 DB role 검증)
 │       ├── quest/
 │       │   ├── quest.controller.ts
 │       │   ├── quest-proof-share.controller.ts
 │       │   ├── quest-deadline.scheduler.ts   # 마감 Cron
 │       │   ├── quest.service.ts
-│       │   └── dto/
+│       │   └── dto/              # create·update·review·decline·reopen·list
+│       ├── user/                 # 슈퍼관리자 사용자 관리(역할 변경·권한 이양·감사 로그 조회)
+│       ├── audit/                # AuditService (감사 로그 기록·조회)
 │       ├── automation/n8n.service.ts
-│       └── common/utils/
+│       └── common/
+│           ├── roles.ts          # 역할 상수·매니저 판정
+│           ├── decorators/       # @Roles, @CurrentUser
+│           ├── guards/           # RolesGuard
+│           └── utils/
 ├── frontend/
 │   └── src/
-│       ├── pages/               # Admin/Employee Dashboard, QuestDetailPage
-│       ├── components/          # QuestItem, ToastContainer, …
-│       ├── store/               # questStore, toastStore, authStore
-│       ├── api/questApi.ts      # refresh 인터셉터
+│       ├── pages/                # SuperAdmin/Admin/Employee Dashboard, QuestDetailPage
+│       ├── components/           # QuestList(테이블)·QuestActions, ToastContainer, …
+│       ├── store/                # questStore, toastStore, authStore
+│       ├── auth/api/userApi.ts   # 사용자 관리·감사 로그 API
+│       ├── types/role.ts         # 역할 상수·홈 경로
+│       ├── api/questApi.ts       # refresh 인터셉터
 │       └── utils/formatDateTime.ts
 ├── n8n/onquest-workflow.template.json
 ├── docker-compose.yml
@@ -385,7 +416,8 @@ cd frontend && npm install && npm run dev
 ### API / DB
 
 - `GET /quests`가 배열이 아닌 객체 → **페이징 응답**으로 변경됨 (정상)
-- 상태 코드 0~4 → v2 마이그레이션 필요: `npx prisma migrate deploy`
+- 상태 코드는 0~5 (5=거부됨). 누락 시 `npx prisma migrate deploy`로 마이그레이션 적용
+- `prisma validate`가 `DATABASE_URL` 없음(P1012)으로 실패 → `.env` 또는 환경변수로 `DATABASE_URL` 제공 (CI는 더미 URL 사용)
 
 ### Prisma
 
@@ -418,10 +450,10 @@ npx prisma studio
 
 | 항목 | 내용 |
 | --- | --- |
-| 회원가입 role 잠금 | 공개 signup은 `employee` 고정, admin은 시드/초대 코드만 |
 | 로그인 `companyCode` | 동일 이메일 다중 테넌트 시 로그인 폼에 회사코드 추가 |
 | httpOnly 쿠키 | refresh/access를 쿠키로 이전 (XSS 완화) |
-| 증빙 공유 레이트 리미트 | 무차별 URL 접근 방지 |
+| 증빙 공유 레이트 리미트 | 공유 URL 자체에도 throttle 적용(현재는 인증 엔드포인트만 적용) |
+| 기존 회사 슈퍼관리자 백필 | 마이그레이션 이전 가입 회사는 superadmin 부재 → 백필 스크립트 필요 |
 
 ### 신뢰성·운영
 
@@ -429,8 +461,8 @@ npx prisma studio
 | --- | --- |
 | **Outbox 패턴** | Slack 웹훅 실패·프로세스 재시작 시 알림 유실 방지 (DB 이벤트 큐 + 워커 재시도) |
 | 헬스체크 | `GET /api/health` (DB·선택 n8n ping) |
-| CI/CD | GitHub Actions — lint, build, `prisma validate` |
-| 자동 테스트 | QuestService, HMAC·공유 토큰 단위 테스트, API e2e |
+| CI lint 추가 | 현재 CI는 typecheck·test·build·prisma validate. ESLint 검사 스텝 보강 |
+| 테스트 확대 | jest 도입 완료(roles·RolesGuard·signUp). QuestService·HMAC·공유 토큰·API e2e 추가 |
 
 ### 스토리지·성능
 
@@ -446,7 +478,7 @@ npx prisma studio
 | --- | --- |
 | 퀘스트 일괄 발행 | CSV/템플릿 기반 다건 생성 |
 | 알림 설정 | 마감 N일 전 사용자·채널별 설정 |
-| 감사 로그 | 검토·수정·삭제 이력 테이블 |
+| 감사 로그 UI 확장 | 기록·조회는 구현됨. 필터·페이징·내보내기 보강 |
 | Slack 멘션 개선 | 담당자 실명·프로필 연동 (User ↔ Slack API) |
 | 관리자 대시보드 | 미완료 퀘스트만 보기, 엑셀보내기 |
 

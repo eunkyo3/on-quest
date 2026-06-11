@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState } from 'react';
 import { questApi } from '../api/questApi';
+import { BulkCreateQuests } from '../components/BulkCreateQuests';
 import { CreateQuestForm } from '../components/CreateQuestForm';
 import { Modal } from '../components/Modal';
 import { Pager } from '../components/Pager';
@@ -24,7 +25,11 @@ type Tab = 'work' | 'stats';
 export default function AdminDashboard() {
   const [tab, setTab] = useState<Tab>('work');
   const [showCreate, setShowCreate] = useState(false);
+  const [showBulk, setShowBulk] = useState(false);
   const [statusFilter, setStatusFilter] = useState<string>('');
+  const [searchInput, setSearchInput] = useState('');
+  const [search, setSearch] = useState('');
+  const [exporting, setExporting] = useState(false);
   const [statsModalFilter, setStatsModalFilter] = useState<StatsFilterKey | null>(null);
   const [assigneeModal, setAssigneeModal] = useState<AssigneeQuestStats | null>(null);
   const [assigneeModalFilter, setAssigneeModalFilter] = useState<StatsFilterKey | null>(null);
@@ -53,8 +58,21 @@ export default function AdminDashboard() {
   useEffect(() => {
     const status =
       statusFilter === '' ? undefined : (Number(statusFilter) as QuestStatus);
-    void fetchQuests({ page: 1, status });
-  }, [statusFilter, fetchQuests]);
+    void fetchQuests({ page: 1, status, search: search || undefined });
+  }, [statusFilter, search, fetchQuests]);
+
+  const handleExport = async () => {
+    setExporting(true);
+    try {
+      const status =
+        statusFilter === '' ? undefined : (Number(statusFilter) as QuestStatus);
+      await questApi.exportCsv({ status, search: search || undefined });
+    } catch {
+      /* axios interceptor toast 처리 외 침묵 */
+    } finally {
+      setExporting(false);
+    }
+  };
 
   // stats 가 갱신될 때마다(=발행·검토·제출 등 변동 시) 검토 대기 목록을 다시 가져온다.
   useEffect(() => {
@@ -196,6 +214,23 @@ export default function AdminDashboard() {
             )}
           </div>
 
+          <div>
+            <button
+              type="button"
+              className="collapsible-head"
+              aria-expanded={showBulk}
+              onClick={() => setShowBulk((v) => !v)}
+            >
+              <span>CSV 일괄 발행</span>
+              <span className="chevron">{showBulk ? '▲ 접기' : '▼ 펼치기'}</span>
+            </button>
+            {showBulk && (
+              <div style={{ marginTop: '0.75rem' }}>
+                <BulkCreateQuests />
+              </div>
+            )}
+          </div>
+
           <section>
             <h2 className="section-title" style={{ marginTop: 0 }}>
               검토 대기 ({reviewQueue.length}건)
@@ -233,8 +268,50 @@ export default function AdminDashboard() {
                   ))}
                 </select>
               </div>
+              <div className="toolbar-field">
+                <label htmlFor="quest-search">검색 (제목·Slack ID)</label>
+                <div className="search-row">
+                  <input
+                    id="quest-search"
+                    className="select-inline"
+                    value={searchInput}
+                    placeholder="검색어 입력 후 Enter"
+                    onChange={(e) => setSearchInput(e.target.value)}
+                    onKeyDown={(e) => {
+                      if (e.key === 'Enter') setSearch(searchInput.trim());
+                    }}
+                  />
+                  <button
+                    type="button"
+                    className="ghost"
+                    onClick={() => setSearch(searchInput.trim())}
+                  >
+                    검색
+                  </button>
+                  {search && (
+                    <button
+                      type="button"
+                      className="ghost"
+                      onClick={() => {
+                        setSearchInput('');
+                        setSearch('');
+                      }}
+                    >
+                      해제
+                    </button>
+                  )}
+                </div>
+              </div>
               <div className="toolbar-meta">
                 <span className="count">총 {total}건</span>
+                <button
+                  type="button"
+                  className="ghost"
+                  disabled={exporting}
+                  onClick={() => void handleExport()}
+                >
+                  {exporting ? '내보내는 중…' : '엑셀(CSV) 내보내기'}
+                </button>
                 <Pager
                   page={page}
                   totalPages={totalPages}

@@ -22,6 +22,7 @@ import { Roles } from '../common/decorators/roles.decorator';
 import { RolesGuard } from '../common/guards/roles.guard';
 import { ROLES } from '../common/roles';
 import type { QuestJwtUser } from './quest-auth.types';
+import { BulkCreateQuestsDto } from './dto/bulk-create-quests.dto';
 import { CreateQuestDto } from './dto/create-quest.dto';
 import { DeclineQuestDto } from './dto/decline-quest.dto';
 import { ReopenQuestDto } from './dto/reopen-quest.dto';
@@ -51,6 +52,32 @@ export class QuestController {
     @CurrentUser() user: QuestJwtUser,
   ) {
     return this.questService.findAll(user, query);
+  }
+
+  @Post('bulk')
+  @Roles(ROLES.ADMIN, ROLES.SUPERADMIN)
+  async bulkCreateQuests(
+    @Body() dto: BulkCreateQuestsDto,
+    @CurrentUser() user: QuestJwtUser,
+  ) {
+    return this.questService.bulkCreateQuests(dto, user);
+  }
+
+  @Get('export')
+  @Roles(ROLES.ADMIN, ROLES.SUPERADMIN)
+  async exportCsv(
+    @Query() query: QuestListQueryDto,
+    @CurrentUser() user: QuestJwtUser,
+    @Res() res: Response,
+  ) {
+    const csv = await this.questService.exportQuestsCsv(user, query);
+    const date = new Date().toISOString().slice(0, 10);
+    res.setHeader('Content-Type', 'text/csv; charset=utf-8');
+    res.setHeader(
+      'Content-Disposition',
+      buildContentDisposition('attachment', `quests-${date}.csv`),
+    );
+    res.send(csv);
   }
 
   @Get('stats')

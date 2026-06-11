@@ -59,6 +59,8 @@ export interface QuestListParams {
   limit?: number;
   status?: QuestStatus;
   assigneeId?: string;
+  /** 제목·담당자 Slack ID 부분 일치 검색 */
+  search?: string;
 }
 
 export interface QuestStats {
@@ -118,6 +120,19 @@ export interface DeclineQuestPayload {
 export interface ReopenQuestPayload {
   /** 선택: 재개봉하며 다른 사원으로 재배정 */
   assigneeId?: string;
+}
+
+/** CSV 일괄 발행 항목 (담당자는 같은 회사 사원 이메일) */
+export interface BulkQuestItem {
+  title: string;
+  description: string;
+  deadline: string;
+  assigneeEmail: string;
+}
+
+export interface BulkCreateResult {
+  created: number;
+  items: Quest[];
 }
 
 /** 증빙 업로드 허용 MIME (안내·검증용) */

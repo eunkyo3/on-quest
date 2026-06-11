@@ -12,6 +12,8 @@ type Tab = 'quests' | 'stats';
 export default function EmployeeDashboard() {
   const [tab, setTab] = useState<Tab>('quests');
   const [statusFilter, setStatusFilter] = useState<string>('');
+  const [searchInput, setSearchInput] = useState('');
+  const [search, setSearch] = useState('');
   const [statsFilter, setStatsFilter] = useState<StatsFilterKey | null>(null);
   const { quests, page, totalPages, total, stats, loading, error, fetchQuests, fetchStats } =
     useQuestStore();
@@ -23,8 +25,8 @@ export default function EmployeeDashboard() {
   useEffect(() => {
     const status =
       statusFilter === '' ? undefined : (Number(statusFilter) as QuestStatus);
-    void fetchQuests({ page: 1, status });
-  }, [statusFilter, fetchQuests]);
+    void fetchQuests({ page: 1, status, search: search || undefined });
+  }, [statusFilter, search, fetchQuests]);
 
   return (
     <div className="grid" style={{ gap: '1.25rem' }}>
@@ -93,6 +95,40 @@ export default function EmployeeDashboard() {
                   ),
                 )}
               </select>
+            </div>
+            <div className="toolbar-field">
+              <label htmlFor="emp-quest-search">검색 (제목)</label>
+              <div className="search-row">
+                <input
+                  id="emp-quest-search"
+                  className="select-inline"
+                  value={searchInput}
+                  placeholder="검색어 입력 후 Enter"
+                  onChange={(e) => setSearchInput(e.target.value)}
+                  onKeyDown={(e) => {
+                    if (e.key === 'Enter') setSearch(searchInput.trim());
+                  }}
+                />
+                <button
+                  type="button"
+                  className="ghost"
+                  onClick={() => setSearch(searchInput.trim())}
+                >
+                  검색
+                </button>
+                {search && (
+                  <button
+                    type="button"
+                    className="ghost"
+                    onClick={() => {
+                      setSearchInput('');
+                      setSearch('');
+                    }}
+                  >
+                    해제
+                  </button>
+                )}
+              </div>
             </div>
             <div className="toolbar-meta">
               <span className="count">총 {total}건</span>

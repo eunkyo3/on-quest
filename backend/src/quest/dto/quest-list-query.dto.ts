@@ -26,4 +26,10 @@ export class QuestListQueryDto {
   @IsString()
   @MaxLength(64)
   assigneeId?: string;
+
+  /** 제목·담당자 Slack ID 부분 일치 검색 */
+  @IsOptional()
+  @IsString()
+  @MaxLength(100)
+  search?: string;
 }

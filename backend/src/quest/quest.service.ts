@@ -16,16 +16,26 @@ import {
   verifyProofShareToken,
 } from '../common/utils/proof-share-token';
 import { N8nService } from '../automation/n8n.service';
+import { BulkCreateQuestsDto } from './dto/bulk-create-quests.dto';
 import { CreateQuestDto } from './dto/create-quest.dto';
 import { DeclineQuestDto } from './dto/decline-quest.dto';
 import { ReopenQuestDto } from './dto/reopen-quest.dto';
 import { QuestListQueryDto } from './dto/quest-list-query.dto';
 import { ReviewQuestDto } from './dto/review-quest.dto';
 import { UpdateQuestDto } from './dto/update-quest.dto';
-import { QuestStatus } from './enums/quest-status.enum';
+import { QUEST_STATUS_LABEL, QuestStatus } from './enums/quest-status.enum';
 import type { QuestJwtUser } from './quest-auth.types';
 import { ROLES, isManagerRole as isManager } from '../common/roles';
 import { AuditService } from '../audit/audit.service';
+
+/** CSV 필드 이스케이프 — 콤마·따옴표·줄바꿈 포함 시 따옴표로 감싼다 */
+export function csvEscape(value: unknown): string {
+  const s = value === null || value === undefined ? '' : String(value);
+  if (/[",\r\n]/.test(s)) {
+    return `"${s.replace(/"/g, '""')}"`;
+  }
+  return s;
+}
 
 const questListSelect = {
   id: true,
@@ -226,6 +236,146 @@ export class QuestService {
   }
 
   /**
+   * 관리자/슈퍼관리자: CSV 등에서 파싱한 항목들을 일괄 발행한다.
+   * - 담당자는 같은 회사의 사원 이메일로 지정하며, 한 건이라도 해석 불가하면
+   *   행 번호를 담아 전체 거부한다(all-or-nothing).
+   */
+  async bulkCreateQuests(
+    dto: BulkCreateQuestsDto,
+    publisher: QuestJwtUser,
+  ): Promise<{ created: number; items: QuestSummary[] }> {
+    if (!isManager(publisher.role)) {
+      throw new ForbiddenException('퀘스트 발행은 관리자만 가능합니다.');
+    }
+
+    const emails = [...new Set(dto.items.map((i) => i.assigneeEmail.toLowerCase()))];
+    const users = await this.prisma.user.findMany({
+      where: {
+        companyCode: publisher.companyCode,
+        role: ROLES.EMPLOYEE,
+        email: { in: emails },
+      },
+      select: { email: true, slackMemberId: true },
+    });
+    const slackByEmail = new Map(users.map((u) => [u.email, u.slackMemberId]));
+
+    const unknownRows = dto.items
+      .map((item, idx) => ({ idx, email: item.assigneeEmail.toLowerCase() }))
+      .filter(({ email }) => !slackByEmail.has(email));
+    if (unknownRows.length > 0) {
+      const detail = unknownRows
+        .map(({ idx, email }) => `${idx + 1}행(${email})`)
+        .join(', ');
+      throw new BadRequestException(
+        `같은 회사의 사원으로 등록되지 않은 이메일이 있습니다: ${detail}`,
+      );
+    }
+
+    const rows = await this.prisma.$transaction(
+      dto.items.map((item) =>
+        this.prisma.quest.create({
+          data: {
+            id: generateQuestId(),
+            title: item.title,
+            description: item.description,
+            deadline: item.deadline,
+            status: QuestStatus.PENDING,
+            assigneeId: slackByEmail.get(item.assigneeEmail.toLowerCase())!,
+            feedback: null,
+            proofData: null,
+            proofMimeType: null,
+            proofFileName: null,
+            submissionNote: null,
+            reviewerId: null,
+            publisherSlackMemberId: publisher.slackMemberId,
+            companyCode: publisher.companyCode,
+          },
+          select: questListSelect,
+        }),
+      ),
+    );
+
+    const names = await this.resolveNamesBySlackIds(publisher.companyCode, [
+      ...rows.map((r) => r.assigneeId),
+      publisher.slackMemberId,
+    ]);
+    for (const saved of rows) {
+      this.n8n.triggerWebhook('quest.created', {
+        id: saved.id,
+        title: saved.title,
+        deadline: saved.deadline.toISOString(),
+        deadlineDisplay: formatDateTimeToMinute(saved.deadline),
+        assigneeId: saved.assigneeId,
+        assigneeName: names.get(saved.assigneeId) ?? null,
+        publisherSlackMemberId: saved.publisherSlackMemberId,
+        publisherName:
+          names.get(saved.publisherSlackMemberId) ?? publisher.name ?? '관리자',
+      });
+    }
+
+    await this.audit.record(publisher, {
+      action: 'quest.bulk_created',
+      targetType: 'quest',
+      targetId: null,
+      detail: `CSV 일괄 발행 ${rows.length}건`,
+    });
+
+    const items = await this.enrichSummaries(rows.map((r) => this.toSummary(r)));
+    return { created: items.length, items };
+  }
+
+  /**
+   * 관리자/슈퍼관리자: 현재 필터 기준 퀘스트 목록을 Excel 호환 CSV(UTF-8 BOM)로 만든다.
+   */
+  async exportQuestsCsv(
+    user: QuestJwtUser,
+    query: QuestListQueryDto,
+  ): Promise<string> {
+    if (!isManager(user.role)) {
+      throw new ForbiddenException('내보내기는 관리자만 가능합니다.');
+    }
+
+    const rows = await this.prisma.quest.findMany({
+      where: this.buildListWhere(user, query),
+      orderBy: { createdAt: 'desc' },
+      take: 5000,
+      select: questListSelect,
+    });
+    const summaries = await this.enrichSummaries(rows.map((r) => this.toSummary(r)));
+
+    const header = [
+      'ID',
+      '제목',
+      '상태',
+      '담당자',
+      '담당자 Slack ID',
+      '마감',
+      '생성일',
+      '검토 피드백',
+      '거부 사유',
+    ];
+    const lines = summaries.map((q) =>
+      [
+        q.id,
+        q.title,
+        QUEST_STATUS_LABEL[q.status] ?? String(q.status),
+        q.assigneeName ?? '',
+        q.assigneeId,
+        formatDateTimeToMinute(q.deadline),
+        formatDateTimeToMinute(q.createdAt),
+        q.feedback ?? '',
+        q.declineReason ?? '',
+      ]
+        .map(csvEscape)
+        .join(','),
+    );
+
+    // BOM(U+FEFF) 으로 Excel 한글 인코딩 깨짐 방지
+    const body = [header.map(csvEscape).join(','), ...lines].join('\r\n');
+    return '\uFEFF' + body;
+  }
+
+  /**
    * 관리자 전용: 동일 회사코드에 등록된 사원 목록(퀘스트 담당 배정용).
    */
   async listAssignableEmployees(user: QuestJwtUser): Promise<AssignableEmployee[]> {
@@ -262,13 +412,7 @@ export class QuestService {
       throw new ForbiddenException('담당자별 조회는 관리자만 가능합니다.');
     }
 
-    const where = {
-      ...(isManager(user.role)
-        ? { companyCode: user.companyCode }
-        : { companyCode: user.companyCode, assigneeId: user.slackMemberId }),
-      ...(query.assigneeId ? { assigneeId: query.assigneeId } : {}),
-      ...(query.status !== undefined ? { status: query.status } : {}),
-    };
+    const where = this.buildListWhere(user, query);
 
     const [rows, total] = await Promise.all([
       this.prisma.quest.findMany({
@@ -288,6 +432,26 @@ export class QuestService {
       page,
       limit,
       totalPages: total === 0 ? 0 : Math.ceil(total / limit),
+    };
+  }
+
+  /** 목록·내보내기 공용 where 빌더 (역할 격리 + 상태/담당자 필터 + 검색) */
+  private buildListWhere(user: QuestJwtUser, query: QuestListQueryDto) {
+    const search = query.search?.trim();
+    return {
+      ...(isManager(user.role)
+        ? { companyCode: user.companyCode }
+        : { companyCode: user.companyCode, assigneeId: user.slackMemberId }),
+      ...(query.assigneeId ? { assigneeId: query.assigneeId } : {}),
+      ...(query.status !== undefined ? { status: query.status } : {}),
+      ...(search
+        ? {
+            OR: [
+              { title: { contains: search, mode: 'insensitive' as const } },
+              { assigneeId: { contains: search, mode: 'insensitive' as const } },
+            ],
+          }
+        : {}),
     };
   }
 

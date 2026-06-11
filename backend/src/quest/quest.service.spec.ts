@@ -1,5 +1,5 @@
 import { BadRequestException, ForbiddenException } from '@nestjs/common';
-import { QuestService } from './quest.service';
+import { QuestService, csvEscape } from './quest.service';
 import { QuestStatus } from './enums/quest-status.enum';
 import { ROLES } from '../common/roles';
 import type { QuestJwtUser } from './quest-auth.types';
@@ -34,6 +34,11 @@ function setup(quest: ReturnType<typeof makeQuest>) {
   const prisma = {
     quest: {
       findUnique: jest.fn().mockResolvedValue(quest),
+      create: jest
+        .fn()
+        .mockImplementation(({ data }: { data: Record<string, unknown> }) =>
+          Promise.resolve({ ...quest, ...data }),
+        ),
       update: jest
         .fn()
         .mockImplementation(({ data }: { data: Record<string, unknown> }) =>
@@ -152,5 +157,87 @@ describe('QuestService — 재개봉(reopen)', () => {
     expect(prisma.user.findFirst).toHaveBeenCalled();
     expect(res.assigneeId).toBe('UEMP0002');
     expect(res.status).toBe(QuestStatus.PENDING);
+  });
+});
+
+describe('QuestService — 일괄 발행(bulk)', () => {
+  const future = new Date(Date.now() + 86_400_000);
+
+  function setupBulk() {
+    const quest = makeQuest();
+    const ctx = setup(quest);
+    // 이메일 → 사원 해석
+    ctx.prisma.user.findMany = jest.fn().mockResolvedValue([
+      { email: 'e1@a.com', slackMemberId: 'UEMP0001' },
+      { email: 'e2@a.com', slackMemberId: 'UEMP0002' },
+    ]);
+    // $transaction: create 프로미스 배열을 그대로 실행
+    (ctx.prisma as Record<string, unknown>).$transaction = jest
+      .fn()
+      .mockImplementation((ops: Promise<unknown>[]) => Promise.all(ops));
+    ctx.prisma.quest.create = jest
+      .fn()
+      .mockImplementation(({ data }: { data: Record<string, unknown> }) =>
+        Promise.resolve({ ...quest, ...data }),
+      );
+    return ctx;
+  }
+
+  it('모든 이메일이 해석되면 전건 생성 + 감사 로그', async () => {
+    const { service, n8n, audit } = setupBulk();
+    const res = await service.bulkCreateQuests(
+      {
+        items: [
+          { title: '과제 1', description: 'd', deadline: future, assigneeEmail: 'e1@a.com' },
+          { title: '과제 2', description: 'd', deadline: future, assigneeEmail: 'e2@a.com' },
+        ],
+      },
+      admin,
+    );
+    expect(res.created).toBe(2);
+    expect(n8n.triggerWebhook).toHaveBeenCalledTimes(2);
+    expect(audit.record).toHaveBeenCalledWith(
+      admin,
+      expect.objectContaining({ action: 'quest.bulk_created' }),
+    );
+  });
+
+  it('미등록 이메일이 있으면 행 번호와 함께 전체 거부', async () => {
+    const { service } = setupBulk();
+    await expect(
+      service.bulkCreateQuests(
+        {
+          items: [
+            { title: '과제 1', description: 'd', deadline: future, assigneeEmail: 'e1@a.com' },
+            { title: '과제 2', description: 'd', deadline: future, assigneeEmail: 'ghost@a.com' },
+          ],
+        },
+        admin,
+      ),
+    ).rejects.toThrow(/2행\(ghost@a\.com\)/);
+  });
+
+  it('사원은 일괄 발행 불가(Forbidden)', async () => {
+    const { service } = setupBulk();
+    await expect(
+      service.bulkCreateQuests(
+        { items: [{ title: '과제', description: 'd', deadline: future, assigneeEmail: 'e1@a.com' }] },
+        employee,
+      ),
+    ).rejects.toBeInstanceOf(ForbiddenException);
+  });
+});
+
+describe('csvEscape', () => {
+  it('일반 문자열은 그대로', () => {
+    expect(csvEscape('hello')).toBe('hello');
+    expect(csvEscape(null)).toBe('');
+    expect(csvEscape(undefined)).toBe('');
+  });
+
+  it('콤마·따옴표·줄바꿈은 따옴표로 감싸고 따옴표는 이중화', () => {
+    expect(csvEscape('a,b')).toBe('"a,b"');
+    expect(csvEscape('say "hi"')).toBe('"say ""hi"""');
+    expect(csvEscape('line1\nline2')).toBe('"line1\nline2"');
   });
 });

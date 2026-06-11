@@ -2,6 +2,8 @@ import axios from 'axios';
 import type {
   AssignableEmployee,
   AssigneeQuestStats,
+  BulkCreateResult,
+  BulkQuestItem,
   CreateQuestPayload,
   DeclineQuestPayload,
   PaginatedQuests,
@@ -117,6 +119,26 @@ export const questApi = {
   create: async (payload: CreateQuestPayload): Promise<Quest> => {
     const { data } = await api.post<Quest>('/quests', payload);
     return data;
+  },
+
+  bulkCreate: async (items: BulkQuestItem[]): Promise<BulkCreateResult> => {
+    const { data } = await api.post<BulkCreateResult>('/quests/bulk', { items });
+    return data;
+  },
+
+  exportCsv: async (params?: QuestListParams): Promise<void> => {
+    const { data } = await api.get<Blob>('/quests/export', {
+      params,
+      responseType: 'blob',
+    });
+    const blobUrl = window.URL.createObjectURL(data);
+    const a = document.createElement('a');
+    a.href = blobUrl;
+    a.download = `quests-${new Date().toISOString().slice(0, 10)}.csv`;
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+    window.URL.revokeObjectURL(blobUrl);
   },
 
   update: async (id: string, payload: UpdateQuestPayload): Promise<Quest> => {

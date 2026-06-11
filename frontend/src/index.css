@@ -427,6 +427,8 @@ label { display: block; margin-bottom: 0.35rem; font-weight: 600; font-size: 0.9
   flex-wrap: wrap;
 }
 .toolbar-meta .count { font-size: 0.85rem; color: var(--text-muted); }
+.search-row { display: flex; gap: 0.4rem; align-items: center; }
+.search-row input { min-width: 200px; }
 
 /* 페이지 이동 (상·하단 공통) */
 .pager { display: inline-flex; align-items: center; gap: 0.4rem; }

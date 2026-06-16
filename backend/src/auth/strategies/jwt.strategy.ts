@@ -4,6 +4,7 @@ import { Injectable, UnauthorizedException } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { PassportStrategy } from '@nestjs/passport';
 import { PrismaService } from '../../prisma/prisma.service';
+import { requireJwtSecret } from '../jwt-secret';
 
 interface JwtPayload {
   sub: string;
@@ -13,6 +14,7 @@ interface JwtPayload {
   companyCode: string;
   slackMemberId: string;
   type?: 'access' | 'refresh';
+  tokenVersion?: number;
 }
 
 export interface JwtUser {
@@ -33,7 +35,7 @@ export class JwtStrategy extends PassportStrategy(Strategy) {
     super({
       jwtFromRequest: ExtractJwt.fromAuthHeaderAsBearerToken(),
       ignoreExpiration: false,
-      secretOrKey: configService.get<string>('JWT_SECRET', 'change_this_jwt_secret'),
+      secretOrKey: requireJwtSecret(configService),
     });
   }
 
@@ -55,10 +57,16 @@ export class JwtStrategy extends PassportStrategy(Strategy) {
         role: true,
         companyCode: true,
         slackMemberId: true,
+        tokenVersion: true,
       },
     });
     if (!user) {
       throw new UnauthorizedException('인증 정보를 확인할 수 없습니다.');
+    }
+
+    // 로그아웃 등으로 tokenVersion 이 올라가면 기존 토큰은 즉시 무효화된다.
+    if ((payload.tokenVersion ?? 0) !== user.tokenVersion) {
+      throw new UnauthorizedException('세션이 만료되었습니다. 다시 로그인하세요.');
     }
 
     return {

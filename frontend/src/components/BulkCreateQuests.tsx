@@ -3,6 +3,7 @@ import { questApi } from '../api/questApi';
 import { useQuestStore } from '../store/questStore';
 import { useToastStore } from '../store/toastStore';
 import { parseQuestCsv, type CsvQuestRow } from '../utils/parseCsv';
+import { formatDateTimeToMinute } from '../utils/formatDateTime';
 
 const TEMPLATE_CSV =
   'title,description,deadline,assigneeEmail\r\n' +
@@ -140,7 +141,7 @@ export function BulkCreateQuests() {
                 <tr key={r.line}>
                   <td className="mono">{r.line}</td>
                   <td>{r.title || '—'}</td>
-                  <td>{r.error ? r.deadline : r.deadline.slice(0, 16).replace('T', ' ')}</td>
+                  <td>{r.error ? r.deadline : formatDateTimeToMinute(r.deadline)}</td>
                   <td className="mono">{r.assigneeEmail || '—'}</td>
                   <td>
                     {r.error ? (

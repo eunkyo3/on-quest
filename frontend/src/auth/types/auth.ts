@@ -11,7 +11,7 @@ export interface AuthUser {
 
 export interface AuthResponse {
   accessToken: string;
-  refreshToken: string;
+  /** refresh token 은 HttpOnly 쿠키로 전달되므로 응답 본문에는 없다. */
   user: AuthUser;
 }
 

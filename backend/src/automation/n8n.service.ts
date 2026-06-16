@@ -3,16 +3,31 @@ import { ConfigService } from '@nestjs/config';
 import axios, { AxiosInstance } from 'axios';
 import * as crypto from 'crypto';
 
-/** n8n HMAC 검증과 동일한 문자열을 만들기 위한 정규 JSON 직렬화(키 정렬) */
-function stableStringify(value: unknown): string {
+/**
+ * n8n HMAC 검증과 동일한 문자열을 만들기 위한 정규 JSON 직렬화(키 정렬).
+ *
+ * JSON.stringify 와 동일하게 undefined/함수/심볼 을 처리한다:
+ *   - 객체 값이면 해당 키를 생략, 배열 요소면 null 로 직렬화.
+ * 이렇게 하지 않으면 `{"k":undefined}` 같은 '유효하지 않은 JSON' 이 서명 대상이 되고,
+ * n8n 이 본문을 JSON 파싱하는 순간 깨져 서명 불일치(알림 누락)가 발생한다.
+ */
+export function stableStringify(value: unknown): string {
+  if (value === undefined || typeof value === 'function' || typeof value === 'symbol') {
+    return 'null'; // 배열 요소 컨텍스트용 — 객체 키는 아래에서 생략된다.
+  }
   if (value === null || typeof value !== 'object') {
     return JSON.stringify(value);
   }
   if (Array.isArray(value)) {
-    return `[${value.map(stableStringify).join(',')}]`;
+    return `[${value.map((v) => stableStringify(v)).join(',')}]`;
   }
   const obj = value as Record<string, unknown>;
-  const keys = Object.keys(obj).sort();
+  const keys = Object.keys(obj)
+    .filter((k) => {
+      const v = obj[k];
+      return v !== undefined && typeof v !== 'function' && typeof v !== 'symbol';
+    })
+    .sort();
   return `{${keys.map((k) => `${JSON.stringify(k)}:${stableStringify(obj[k])}`).join(',')}}`;
 }
 

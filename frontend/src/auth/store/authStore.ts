@@ -5,7 +5,6 @@ import { authApi } from '../api/authApi';
 import type { AuthUser, SignInPayload, SignUpPayload, UpdateProfilePayload } from '../types/auth';
 
 const TOKEN_KEY = 'onquest_access_token';
-const REFRESH_KEY = 'onquest_refresh_token';
 const USER_KEY = 'onquest_user';
 
 interface AuthState {
@@ -23,18 +22,16 @@ interface AuthState {
   touchActivity: () => void;
 }
 
-const persist = (accessToken: string, refreshToken: string, user: AuthUser) => {
-  persistAuthTokens(accessToken, refreshToken);
+const persist = (accessToken: string, user: AuthUser) => {
+  // refresh token 은 HttpOnly 쿠키로만 보관되고 JS 에서 접근하지 않는다.
+  persistAuthTokens(accessToken);
   localStorage.setItem(USER_KEY, JSON.stringify(user));
 };
 
 const clearPersist = () => {
   localStorage.removeItem(TOKEN_KEY);
-  localStorage.removeItem(REFRESH_KEY);
   localStorage.removeItem(USER_KEY);
 };
-
-export const getStoredToken = (): string | null => localStorage.getItem(TOKEN_KEY);
 
 export const useAuthStore = create<AuthState>((set, get) => ({
   user: null,
@@ -63,7 +60,7 @@ export const useAuthStore = create<AuthState>((set, get) => ({
   login: async (payload) => {
     try {
       const result = await authApi.login(payload);
-      persist(result.accessToken, result.refreshToken, result.user);
+      persist(result.accessToken, result.user);
       set({ user: result.user, accessToken: result.accessToken, lastActivityAt: Date.now() });
     } catch (e) {
       throw new Error(getApiErrorMessage(e, '로그인에 실패했습니다.'));
@@ -73,7 +70,7 @@ export const useAuthStore = create<AuthState>((set, get) => ({
   signup: async (payload) => {
     try {
       const result = await authApi.signup(payload);
-      persist(result.accessToken, result.refreshToken, result.user);
+      persist(result.accessToken, result.user);
       set({ user: result.user, accessToken: result.accessToken, lastActivityAt: Date.now() });
     } catch (e) {
       throw new Error(getApiErrorMessage(e, '회원가입에 실패했습니다.'));
@@ -81,20 +78,18 @@ export const useAuthStore = create<AuthState>((set, get) => ({
   },
 
   logout: () => {
+    // 로컬을 비우기 전에 토큰을 캡처해 로그아웃 요청에 실어 보낸다(서버 tokenVersion 증가).
+    const token = get().accessToken ?? localStorage.getItem(TOKEN_KEY);
     clearPersist();
     set({ user: null, accessToken: null });
+    // 서버 세션 폐기는 best-effort — 실패해도 로컬은 이미 정리됨.
+    if (token) void authApi.logout(token).catch(() => undefined);
   },
 
   updateProfile: async (payload) => {
     try {
       const user = await authApi.updateProfile(payload);
-      const token = localStorage.getItem(TOKEN_KEY);
-      const refresh = localStorage.getItem(REFRESH_KEY);
-      if (token && refresh) {
-        persist(token, refresh, user);
-      } else {
-        localStorage.setItem(USER_KEY, JSON.stringify(user));
-      }
+      localStorage.setItem(USER_KEY, JSON.stringify(user));
       set({ user });
     } catch (e) {
       throw new Error(getApiErrorMessage(e, '프로필 저장에 실패했습니다.'));

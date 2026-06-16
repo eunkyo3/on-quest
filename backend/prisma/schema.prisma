@@ -16,6 +16,8 @@ model User {
   companyCode   String   @db.VarChar(32)
   /// role: superadmin | admin | employee — 회사코드 최초 가입자는 superadmin
   role          String   @default("employee") @db.VarChar(20)
+  /// 세션 폐기용 버전. 로그아웃 시 증가시켜 발급된 access/refresh 토큰을 즉시 무효화한다.
+  tokenVersion  Int      @default(0)
   createdAt     DateTime @default(now()) @db.Timestamptz(6)
   updatedAt     DateTime @updatedAt @db.Timestamptz(6)
 
@@ -23,6 +25,11 @@ model User {
   @@unique([slackMemberId, companyCode])
   @@index([companyCode])
   @@map("users")
+  // 주의: "한 회사당 superadmin 1명" 보장은 부분 유니크 인덱스
+  //   users_one_superadmin_per_company (WHERE role='superadmin') 로 DB 에만 존재한다.
+  //   Prisma 스키마 문법으로는 부분 인덱스를 표현할 수 없으므로 마이그레이션
+  //   20260609130000_audit_log_and_superadmin_index 가 유일한 정의다.
+  //   `prisma db push` 사용 시 이 제약이 사라지므로 반드시 migrate 흐름을 사용할 것.
 }
 
 /// 퀘스트 (기존 TypeORM QuestEntity 대응)

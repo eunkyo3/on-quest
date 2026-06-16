@@ -1,5 +1,6 @@
 import {
   BadRequestException,
+  ConflictException,
   ForbiddenException,
   Injectable,
   Logger,
@@ -7,6 +8,7 @@ import {
   UnauthorizedException,
 } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
+import { Prisma } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
 import { formatDateTimeToMinute } from '../common/utils/format-datetime';
 import { buildProofFileName } from '../common/utils/proof-filename';
@@ -28,9 +30,17 @@ import type { QuestJwtUser } from './quest-auth.types';
 import { ROLES, isManagerRole as isManager } from '../common/roles';
 import { AuditService } from '../audit/audit.service';
 
-/** CSV 필드 이스케이프 — 콤마·따옴표·줄바꿈 포함 시 따옴표로 감싼다 */
+/**
+ * CSV 필드 이스케이프.
+ * 1) 수식 인젝션 방지: =, +, -, @, 탭, 캐리지리턴 으로 시작하는 값은 앞에 작은따옴표를
+ *    붙여 Excel/Sheets 가 수식으로 실행하지 못하게 한다.
+ * 2) 콤마·따옴표·줄바꿈 포함 시 따옴표로 감싼다.
+ */
 export function csvEscape(value: unknown): string {
-  const s = value === null || value === undefined ? '' : String(value);
+  let s = value === null || value === undefined ? '' : String(value);
+  if (s.length > 0 && /^[=+\-@\t\r]/.test(s)) {
+    s = `'${s}`;
+  }
   if (/[",\r\n]/.test(s)) {
     return `"${s.replace(/"/g, '""')}"`;
   }
@@ -159,9 +169,12 @@ export class QuestService {
       this.config.get<string>('PROOF_SHARE_SECRET') ??
       this.config.get<string>('N8N_WEBHOOK_SECRET') ??
       '';
-    this.proofShareTtlSeconds = Number(
+    const ttlRaw = Number(
       this.config.get<string>('PROOF_SHARE_TTL_SECONDS') ?? 7 * 24 * 3600,
     );
+    // 비숫자 env 가 NaN 으로 흘러 토큰 TTL 계산을 깨뜨리지 않도록 보정
+    this.proofShareTtlSeconds =
+      Number.isFinite(ttlRaw) && ttlRaw > 0 ? ttlRaw : 7 * 24 * 3600;
 
     if (!this.config.get<string>('API_PUBLIC_URL')) {
       this.logger.warn(
@@ -173,6 +186,33 @@ export class QuestService {
         'PROOF_SHARE_SECRET / N8N_WEBHOOK_SECRET 미설정 — Slack 증빙 공유 링크가 생성되지 않습니다.',
       );
     }
+  }
+
+  /**
+   * 상태 전이를 원자적으로 적용한다(TOCTOU 방지).
+   * expected 상태인 행만 updateMany 로 선점하고, 갱신된 행이 없으면(동시 변경됨)
+   * 409 Conflict 로 응답한다. 선점에 성공하면 갱신된 행을 다시 읽어 반환한다.
+   */
+  private async applyStatusTransition(
+    id: string,
+    expected: QuestStatus[],
+    data: Prisma.QuestUpdateManyMutationInput,
+  ) {
+    const res = await this.prisma.quest.updateMany({
+      where: { id, status: { in: expected } },
+      data,
+    });
+    if (res.count === 0) {
+      throw new ConflictException(
+        '퀘스트 상태가 이미 변경되었습니다. 새로고침 후 다시 시도해 주세요.',
+      );
+    }
+    const saved = await this.prisma.quest.findUnique({
+      where: { id },
+      select: questListSelect,
+    });
+    if (!saved) throw new NotFoundException(`Quest(${id}) not found`);
+    return saved;
   }
 
   async createQuest(dto: CreateQuestDto, publisher: QuestJwtUser): Promise<QuestSummary> {
@@ -495,14 +535,10 @@ export class QuestService {
       throw new BadRequestException('수정할 항목을 하나 이상 입력하세요.');
     }
 
-    const saved = await this.prisma.quest.update({
-      where: { id },
-      data: {
-        ...(dto.title !== undefined ? { title: dto.title } : {}),
-        ...(dto.description !== undefined ? { description: dto.description } : {}),
-        ...(dto.deadline !== undefined ? { deadline: dto.deadline } : {}),
-      },
-      select: questListSelect,
+    const saved = await this.applyStatusTransition(id, [QuestStatus.PENDING], {
+      ...(dto.title !== undefined ? { title: dto.title } : {}),
+      ...(dto.description !== undefined ? { description: dto.description } : {}),
+      ...(dto.deadline !== undefined ? { deadline: dto.deadline } : {}),
     });
 
     const [enriched] = await this.enrichSummaries([this.toSummary(saved)]);
@@ -574,14 +610,14 @@ export class QuestService {
 
     const reason = dto.reason.trim();
 
-    const saved = await this.prisma.quest.update({
-      where: { id },
-      data: {
+    const saved = await this.applyStatusTransition(
+      id,
+      [QuestStatus.PENDING, QuestStatus.IN_PROGRESS],
+      {
         status: QuestStatus.DECLINED,
         declineReason: reason,
       },
-      select: questListSelect,
-    });
+    );
 
     const names = await this.resolveNamesBySlackIds(saved.companyCode, [
       saved.assigneeId,
@@ -653,16 +689,12 @@ export class QuestService {
       nextAssigneeId = dto.assigneeId;
     }
 
-    const saved = await this.prisma.quest.update({
-      where: { id },
-      data: {
-        status: QuestStatus.PENDING,
-        declineReason: null,
-        assigneeId: nextAssigneeId,
-        deadlineSoonNotifiedAt: null,
-        overdueNotifiedAt: null,
-      },
-      select: questListSelect,
+    const saved = await this.applyStatusTransition(id, [QuestStatus.DECLINED], {
+      status: QuestStatus.PENDING,
+      declineReason: null,
+      assigneeId: nextAssigneeId,
+      deadlineSoonNotifiedAt: null,
+      overdueNotifiedAt: null,
     });
 
     const reassigned = nextAssigneeId !== quest.assigneeId;
@@ -712,11 +744,11 @@ export class QuestService {
       throw new BadRequestException('대기 또는 반려 상태에서만 착수할 수 있습니다.');
     }
 
-    const saved = await this.prisma.quest.update({
-      where: { id },
-      data: { status: QuestStatus.IN_PROGRESS },
-      select: questListSelect,
-    });
+    const saved = await this.applyStatusTransition(
+      id,
+      [QuestStatus.PENDING, QuestStatus.REJECTED],
+      { status: QuestStatus.IN_PROGRESS },
+    );
 
     const [enriched] = await this.enrichSummaries([this.toSummary(saved)]);
     return enriched;
@@ -878,12 +910,13 @@ export class QuestService {
     const proofFileName = buildProofFileName(
       user.name ?? '사원',
       quest.title,
-      file.originalname,
+      file.mimetype,
     );
 
-    const saved = await this.prisma.quest.update({
-      where: { id },
-      data: {
+    const saved = await this.applyStatusTransition(
+      id,
+      [QuestStatus.IN_PROGRESS, QuestStatus.SUBMITTED, QuestStatus.REJECTED],
+      {
         proofData: file.buffer,
         proofMimeType: file.mimetype,
         proofFileName,
@@ -893,8 +926,7 @@ export class QuestService {
         feedback: null,
         reviewerId: null,
       },
-      select: questListSelect,
-    });
+    );
 
     const proofUrl = this.buildProofShareUrl(saved.id);
     const names = await this.resolveNamesBySlackIds(saved.companyCode, [
@@ -951,14 +983,10 @@ export class QuestService {
       throw new BadRequestException('검토 대기 상태의 퀘스트만 검토할 수 있습니다.');
     }
 
-    const saved = await this.prisma.quest.update({
-      where: { id },
-      data: {
-        status: dto.status,
-        feedback: dto.feedback ?? null,
-        reviewerId: dto.reviewerId ?? user.slackMemberId,
-      },
-      select: questListSelect,
+    const saved = await this.applyStatusTransition(id, [QuestStatus.SUBMITTED], {
+      status: dto.status,
+      feedback: dto.feedback ?? null,
+      reviewerId: dto.reviewerId ?? user.slackMemberId,
     });
 
     const names = await this.resolveNamesBySlackIds(saved.companyCode, [

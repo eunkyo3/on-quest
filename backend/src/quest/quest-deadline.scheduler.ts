@@ -45,6 +45,14 @@ export class QuestDeadlineScheduler {
     });
 
     for (const q of soonCandidates) {
+      // 원자적 클레임: 아직 알림이 안 나간 행만 선점한다.
+      // 다중 인스턴스·중복 실행 시에도 한 번만 webhook 이 발사된다.
+      const claimed = await this.prisma.quest.updateMany({
+        where: { id: q.id, deadlineSoonNotifiedAt: null },
+        data: { deadlineSoonNotifiedAt: now },
+      });
+      if (claimed.count === 0) continue;
+
       const names = await this.resolveNames(q.companyCode, [
         q.assigneeId,
         q.publisherSlackMemberId,
@@ -57,10 +65,6 @@ export class QuestDeadlineScheduler {
         assigneeName: names.get(q.assigneeId) ?? null,
         publisherSlackMemberId: q.publisherSlackMemberId,
         publisherName: names.get(q.publisherSlackMemberId) ?? null,
-      });
-      await this.prisma.quest.update({
-        where: { id: q.id },
-        data: { deadlineSoonNotifiedAt: now },
       });
     }
 
@@ -81,6 +85,12 @@ export class QuestDeadlineScheduler {
     });
 
     for (const q of overdueCandidates) {
+      const claimed = await this.prisma.quest.updateMany({
+        where: { id: q.id, overdueNotifiedAt: null },
+        data: { overdueNotifiedAt: now },
+      });
+      if (claimed.count === 0) continue;
+
       const names = await this.resolveNames(q.companyCode, [
         q.assigneeId,
         q.publisherSlackMemberId,
@@ -93,10 +103,6 @@ export class QuestDeadlineScheduler {
         assigneeName: names.get(q.assigneeId) ?? null,
         publisherSlackMemberId: q.publisherSlackMemberId,
         publisherName: names.get(q.publisherSlackMemberId) ?? null,
-      });
-      await this.prisma.quest.update({
-        where: { id: q.id },
-        data: { overdueNotifiedAt: now },
       });
     }
 

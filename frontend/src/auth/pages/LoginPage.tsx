@@ -1,7 +1,7 @@
 import { useState } from 'react';
 import { Link, useLocation, useNavigate } from 'react-router-dom';
 import { useAuthStore } from '../store/authStore';
-import { homePathForRole } from '../../types/role';
+import { canAccessPath, homePathForRole } from '../../types/role';
 
 export default function LoginPage() {
   const navigate = useNavigate();
@@ -27,10 +27,9 @@ export default function LoginPage() {
       });
       const u = useAuthStore.getState().user;
       const home = homePathForRole(u?.role);
-      let target = fromState ?? home;
-      // 역할에 맞지 않는 복귀 경로면 역할 홈으로 보정한다.
-      if (u?.role === 'employee' && !target.startsWith('/employee')) target = home;
-      if (u?.role === 'admin' && !target.startsWith('/admin')) target = home;
+      const requested = fromState ?? home;
+      // 역할에 맞지 않는 복귀 경로면 역할 홈으로 보정한다(superadmin 포함 전 역할).
+      const target = canAccessPath(u?.role, requested) ? requested : home;
       navigate(target, { replace: true });
     } catch (err) {
       const message = err instanceof Error ? err.message : '로그인에 실패했습니다.';

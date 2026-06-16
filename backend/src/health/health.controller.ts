@@ -23,7 +23,8 @@ export class HealthController {
   async check(): Promise<{ status: string; db: string; timestamp: string }> {
     let db = 'down';
     try {
-      await this.prisma.$queryRaw`SELECT 1`;
+      // DB가 멈춰(에러 없이 hang) 프로브가 무한 대기하지 않도록 타임아웃을 건다.
+      await this.withTimeout(this.prisma.$queryRaw`SELECT 1`, 3000);
       db = 'up';
     } catch (e) {
       const msg = e instanceof Error ? e.message : String(e);
@@ -35,5 +36,25 @@ export class HealthController {
       });
     }
     return { status: 'ok', db, timestamp: new Date().toISOString() };
+  }
+
+  /** promise 가 timeoutMs 내에 끝나지 않으면 거부한다(타이머는 정리). */
+  private withTimeout<T>(promise: PromiseLike<T>, timeoutMs: number): Promise<T> {
+    return new Promise<T>((resolve, reject) => {
+      const timer = setTimeout(
+        () => reject(new Error(`DB 헬스체크 타임아웃(${timeoutMs}ms)`)),
+        timeoutMs,
+      );
+      Promise.resolve(promise).then(
+        (v) => {
+          clearTimeout(timer);
+          resolve(v);
+        },
+        (err) => {
+          clearTimeout(timer);
+          reject(err);
+        },
+      );
+    });
   }
 }

@@ -30,6 +30,10 @@ import { QuestListQueryDto } from './dto/quest-list-query.dto';
 import { ReviewQuestDto } from './dto/review-quest.dto';
 import { UpdateQuestDto } from './dto/update-quest.dto';
 import { buildContentDisposition } from '../common/utils/content-disposition';
+import {
+  ALLOWED_PROOF_MIME,
+  isInlineSafeMime,
+} from '../common/utils/proof-mime';
 import { QuestService } from './quest.service';
 
 @Controller('quests')
@@ -153,6 +157,18 @@ export class QuestController {
   @UseInterceptors(
     FileInterceptor('file', {
       limits: { fileSize: 10 * 1024 * 1024 },
+      fileFilter: (_req, file, cb) => {
+        if (ALLOWED_PROOF_MIME.has(file.mimetype)) {
+          cb(null, true);
+        } else {
+          cb(
+            new BadRequestException(
+              '허용되지 않는 파일 형식입니다. (PNG·JPEG·GIF·WEBP·PDF 만 가능)',
+            ),
+            false,
+          );
+        }
+      },
     }),
   )
   async uploadProof(
@@ -183,6 +199,7 @@ export class QuestController {
     const proof = await this.questService.getProof(id, user);
     if (!proof) throw new NotFoundException('등록된 증빙 자료가 없습니다.');
     res.setHeader('Content-Type', proof.mimeType);
+    res.setHeader('X-Content-Type-Options', 'nosniff');
     res.setHeader(
       'Content-Disposition',
       buildContentDisposition('attachment', proof.fileName),
@@ -198,13 +215,13 @@ export class QuestController {
   ) {
     const proof = await this.questService.getProof(id, user);
     if (!proof) throw new NotFoundException('등록된 증빙 자료가 없습니다.');
-    const isImage = proof.mimeType.startsWith('image/');
-    const isPdf = proof.mimeType === 'application/pdf';
     res.setHeader('Content-Type', proof.mimeType);
+    // 브라우저 MIME 스니핑 차단 — 화이트리스트 타입만 inline 으로 렌더링한다.
+    res.setHeader('X-Content-Type-Options', 'nosniff');
     res.setHeader(
       'Content-Disposition',
       buildContentDisposition(
-        isImage || isPdf ? 'inline' : 'attachment',
+        isInlineSafeMime(proof.mimeType) ? 'inline' : 'attachment',
         proof.fileName,
       ),
     );

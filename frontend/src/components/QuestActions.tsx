@@ -49,12 +49,18 @@ export function QuestActions({ quest, mode, onUpdated }: Props) {
     if (fileInputRef.current) fileInputRef.current.value = '';
   }, [quest.id, quest.updatedAt, quest.submissionNote]);
 
+  // 미리보기 모달 URL은 ref로 추적해 '언마운트 시에만' 해제한다.
+  // (previewUrl 변경 때마다 모달 URL이 잘못 해제돼 열린 이미지가 사라지던 버그 방지)
+  const proofModalUrlRef = useRef<string | null>(null);
   useEffect(() => {
-    return () => {
-      if (previewUrl) URL.revokeObjectURL(previewUrl);
-      if (proofModalUrl) URL.revokeObjectURL(proofModalUrl);
-    };
-  }, [previewUrl, proofModalUrl]);
+    proofModalUrlRef.current = proofModalUrl;
+  }, [proofModalUrl]);
+  useEffect(
+    () => () => {
+      if (proofModalUrlRef.current) URL.revokeObjectURL(proofModalUrlRef.current);
+    },
+    [],
+  );
 
   useEffect(() => {
     if (!draftFile?.type.startsWith('image/')) {

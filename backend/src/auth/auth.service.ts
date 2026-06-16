@@ -30,6 +30,7 @@ interface JwtPayload {
   companyCode: string;
   slackMemberId: string;
   type: 'access' | 'refresh';
+  tokenVersion: number;
 }
 
 export interface AuthTokens {
@@ -79,7 +80,7 @@ export class AuthService {
         companyCode: dto.companyCode,
         role,
       });
-      return this.issueTokens(user);
+      return this.issueTokens(user, user.tokenVersion);
     } catch (e) {
       // 동시 최초 가입 경합: 슈퍼관리자 유니크 인덱스 위반 → 사원으로 강등 생성
       if (role === ROLES.SUPERADMIN && this.isSuperadminUniqueViolation(e)) {
@@ -91,7 +92,7 @@ export class AuthService {
           companyCode: dto.companyCode,
           role: ROLES.EMPLOYEE,
         });
-        return this.issueTokens(user);
+        return this.issueTokens(user, user.tokenVersion);
       }
       // 동시 중복 가입(email/slack 유니크) 경합
       if (this.isUniqueViolation(e)) {
@@ -110,8 +111,8 @@ export class AuthService {
     slackMemberId: string;
     companyCode: string;
     role: string;
-  }): Promise<AuthUser> {
-    return this.prisma.user.create({
+  }): Promise<AuthUser & { tokenVersion: number }> {
+    const user = await this.prisma.user.create({
       data,
       select: {
         id: true,
@@ -120,8 +121,10 @@ export class AuthService {
         slackMemberId: true,
         companyCode: true,
         role: true,
+        tokenVersion: true,
       },
     });
+    return { ...user, tokenVersion: user.tokenVersion ?? 0 };
   }
 
   private isUniqueViolation(e: unknown): boolean {
@@ -169,7 +172,7 @@ export class AuthService {
       role: user.role,
     };
 
-    return this.issueTokens(safeUser);
+    return this.issueTokens(safeUser, user.tokenVersion ?? 0);
   }
 
   async refresh(refreshToken: string): Promise<AuthTokens> {
@@ -183,8 +186,36 @@ export class AuthService {
       throw new UnauthorizedException('유효하지 않은 refresh token입니다.');
     }
 
-    const user = await this.getMe(payload.sub);
-    return this.issueTokens(user);
+    const record = await this.prisma.user.findUnique({
+      where: { id: payload.sub },
+      select: {
+        id: true,
+        email: true,
+        name: true,
+        slackMemberId: true,
+        companyCode: true,
+        role: true,
+        tokenVersion: true,
+      },
+    });
+    if (!record) {
+      throw new UnauthorizedException('인증 정보를 확인할 수 없습니다.');
+    }
+    // 로그아웃 등으로 tokenVersion 이 바뀐 refresh token 은 폐기된 것으로 간주한다.
+    if ((payload.tokenVersion ?? 0) !== record.tokenVersion) {
+      throw new UnauthorizedException('세션이 만료되었습니다. 다시 로그인하세요.');
+    }
+
+    const { tokenVersion, ...user } = record;
+    return this.issueTokens(user, tokenVersion);
+  }
+
+  /** 로그아웃 — tokenVersion 을 증가시켜 발급된 모든 access/refresh 토큰을 폐기한다. */
+  async logout(userId: string): Promise<void> {
+    await this.prisma.user.update({
+      where: { id: userId },
+      data: { tokenVersion: { increment: 1 } },
+    });
   }
 
   async updateProfile(userId: string, dto: UpdateProfileDto): Promise<AuthUser> {
@@ -269,7 +300,10 @@ export class AuthService {
     return user;
   }
 
-  private async issueTokens(user: AuthUser): Promise<AuthTokens> {
+  private async issueTokens(
+    user: AuthUser,
+    tokenVersion: number,
+  ): Promise<AuthTokens> {
     const base = {
       sub: user.id,
       email: user.email,
@@ -277,6 +311,7 @@ export class AuthService {
       role: user.role,
       companyCode: user.companyCode,
       slackMemberId: user.slackMemberId,
+      tokenVersion,
     };
 
     const accessExpiresIn = this.configService.get<string>('JWT_EXPIRES_IN', '1h');

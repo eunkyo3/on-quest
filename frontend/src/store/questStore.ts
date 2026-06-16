@@ -55,6 +55,10 @@ const toastErr = (e: unknown, fallback: string) => {
   return msg || fallback;
 };
 
+// fetchQuests 응답 순서 경쟁 방지용 단조 증가 토큰(최신 요청만 반영).
+// 빠른 필터/검색/페이지 전환 시 느린 이전 응답이 최신 목록을 덮어쓰지 않게 한다.
+let fetchQuestsSeq = 0;
+
 export const useQuestStore = create<QuestState>((set, get) => ({
   quests: [],
   page: 1,
@@ -68,9 +72,12 @@ export const useQuestStore = create<QuestState>((set, get) => ({
 
   fetchQuests: async (params) => {
     const merged = { ...get().listParams, ...params };
+    const seq = ++fetchQuestsSeq;
     set({ loading: true, error: null, listParams: merged });
     try {
       const result = await questApi.list(merged);
+      // 더 최신 요청이 이미 떴다면 이 응답은 버린다(loading 은 최신 요청이 소유).
+      if (seq !== fetchQuestsSeq) return;
       set({
         quests: result.items,
         page: result.page,
@@ -79,6 +86,8 @@ export const useQuestStore = create<QuestState>((set, get) => ({
         loading: false,
       });
     } catch (e) {
+      // 최신 요청이 아니면 토스트·상태 변경 모두 생략(최신 요청이 처리).
+      if (seq !== fetchQuestsSeq) return;
       const msg = toastErr(e, '퀘스트 목록을 불러오지 못했습니다.');
       set({ loading: false, error: msg });
     }

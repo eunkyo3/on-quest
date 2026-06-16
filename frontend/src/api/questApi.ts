@@ -17,24 +17,24 @@ import type {
 
 const baseURL = import.meta.env.VITE_API_BASE_URL ?? '';
 const TOKEN_KEY = 'onquest_access_token';
-const REFRESH_KEY = 'onquest_refresh_token';
 
 export const api = axios.create({
   baseURL: `${baseURL}/api`,
   timeout: 10_000,
+  // refresh/logout 의 HttpOnly 쿠키를 주고받기 위해 자격증명 포함
+  withCredentials: true,
 });
 
 let refreshPromise: Promise<string> | null = null;
 
 async function refreshAccessToken(): Promise<string> {
-  const refresh = localStorage.getItem(REFRESH_KEY);
-  if (!refresh) throw new Error('no refresh');
-  const { data } = await axios.post<{ accessToken: string; refreshToken: string }>(
+  // refresh token 은 HttpOnly 쿠키로만 전송된다 — 본문/스토리지에 담지 않는다.
+  const { data } = await axios.post<{ accessToken: string }>(
     `${baseURL}/api/auth/refresh`,
-    { refreshToken: refresh },
+    {},
+    { withCredentials: true },
   );
   localStorage.setItem(TOKEN_KEY, data.accessToken);
-  localStorage.setItem(REFRESH_KEY, data.refreshToken);
   return data.accessToken;
 }
 
@@ -55,9 +55,7 @@ api.interceptors.response.use(
 
     const original = error.config;
     if (!original || original.url?.includes('/auth/refresh')) {
-      localStorage.removeItem(TOKEN_KEY);
-      localStorage.removeItem(REFRESH_KEY);
-      localStorage.removeItem('onquest_user');
+      clearStoredSession();
       if (!window.location.pathname.startsWith('/login')) {
         window.location.href = '/login';
       }
@@ -74,9 +72,7 @@ api.interceptors.response.use(
       original.headers.Authorization = `Bearer ${token}`;
       return api.request(original);
     } catch {
-      localStorage.removeItem(TOKEN_KEY);
-      localStorage.removeItem(REFRESH_KEY);
-      localStorage.removeItem('onquest_user');
+      clearStoredSession();
       if (!window.location.pathname.startsWith('/login')) {
         window.location.href = '/login';
       }
@@ -85,9 +81,13 @@ api.interceptors.response.use(
   },
 );
 
-export function persistAuthTokens(accessToken: string, refreshToken: string): void {
+function clearStoredSession(): void {
+  localStorage.removeItem(TOKEN_KEY);
+  localStorage.removeItem('onquest_user');
+}
+
+export function persistAuthTokens(accessToken: string): void {
   localStorage.setItem(TOKEN_KEY, accessToken);
-  localStorage.setItem(REFRESH_KEY, refreshToken);
 }
 
 export const questApi = {

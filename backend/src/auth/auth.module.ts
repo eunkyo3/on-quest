@@ -5,6 +5,7 @@ import { PassportModule } from '@nestjs/passport';
 import { AuthController } from './auth.controller';
 import { AuthService } from './auth.service';
 import { JwtStrategy } from './strategies/jwt.strategy';
+import { requireJwtSecret } from './jwt-secret';
 
 @Module({
   imports: [
@@ -13,7 +14,7 @@ import { JwtStrategy } from './strategies/jwt.strategy';
     JwtModule.registerAsync({
       inject: [ConfigService],
       useFactory: (configService: ConfigService) => ({
-        secret: configService.get<string>('JWT_SECRET', 'change_this_jwt_secret'),
+        secret: requireJwtSecret(configService),
       }),
     }),
   ],

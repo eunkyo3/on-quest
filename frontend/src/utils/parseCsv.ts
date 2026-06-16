@@ -75,6 +75,33 @@ export interface CsvQuestRow {
 }
 
 /**
+ * 마감 문자열을 '로컬 타임존' 으로 결정론적으로 파싱한다.
+ * `new Date('2026-06-30 18:00')` 은 공백 구분 형식이라 엔진마다 동작이 달라질 수 있어,
+ * 연·월·일·시·분을 직접 추출해 로컬 시각으로 구성한다. (지원: YYYY-MM-DD[ T]HH:mm, YYYY-MM-DD)
+ */
+export function parseLocalDeadline(raw: string): Date | null {
+  const m = /^(\d{4})-(\d{2})-(\d{2})(?:[ T](\d{2}):(\d{2}))?$/.exec(raw.trim());
+  if (!m) return null;
+  const [, y, mo, d, h = '0', min = '0'] = m;
+  const date = new Date(
+    Number(y),
+    Number(mo) - 1,
+    Number(d),
+    Number(h),
+    Number(min),
+  );
+  // 입력값과 실제 날짜가 일치하는지(예: 2026-02-30 같은 넘침) 검증
+  if (
+    date.getFullYear() !== Number(y) ||
+    date.getMonth() !== Number(mo) - 1 ||
+    date.getDate() !== Number(d)
+  ) {
+    return null;
+  }
+  return date;
+}
+
+/**
  * 퀘스트 일괄 발행 CSV 를 행 단위로 검증해 반환한다.
  * 필수 헤더: title, description, deadline, assigneeEmail (한글 별칭 허용)
  */
@@ -110,10 +137,10 @@ export function parseQuestCsv(text: string): { rows: CsvQuestRow[]; headerError:
     const assigneeEmail = (cells[idx.assigneeEmail] ?? '').trim();
 
     let error: string | null = null;
-    const deadlineDate = new Date(deadlineRaw);
+    const deadlineDate = parseLocalDeadline(deadlineRaw);
     if (title.length < 2) error = '제목은 2자 이상이어야 합니다.';
     else if (!description) error = '설명이 비어 있습니다.';
-    else if (!deadlineRaw || Number.isNaN(deadlineDate.getTime()))
+    else if (!deadlineRaw || !deadlineDate)
       error = '마감 날짜를 해석할 수 없습니다. (예: 2026-06-30 18:00)';
     else if (deadlineDate.getTime() <= Date.now())
       error = '마감 기한은 현재 시각 이후여야 합니다.';
@@ -124,7 +151,7 @@ export function parseQuestCsv(text: string): { rows: CsvQuestRow[]; headerError:
       line: i + 2, // 헤더 다음 행부터 = 파일 기준 행 번호
       title,
       description,
-      deadline: error ? deadlineRaw : deadlineDate.toISOString(),
+      deadline: error || !deadlineDate ? deadlineRaw : deadlineDate.toISOString(),
       assigneeEmail,
       error,
     };

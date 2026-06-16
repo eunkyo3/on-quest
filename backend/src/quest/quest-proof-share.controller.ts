@@ -9,6 +9,7 @@ import {
 } from '@nestjs/common';
 import type { Response } from 'express';
 import { buildContentDisposition } from '../common/utils/content-disposition';
+import { isInlineSafeMime } from '../common/utils/proof-mime';
 import { QuestService } from './quest.service';
 
 /** Slack 등 외부에서 JWT 없이 서명 토큰으로 증빙을 조회 */
@@ -31,11 +32,14 @@ export class QuestProofShareController {
       throw new NotFoundException('등록된 증빙 자료가 없습니다.');
     }
 
-    const isImage = proof.mimeType.startsWith('image/');
     res.setHeader('Content-Type', proof.mimeType);
+    res.setHeader('X-Content-Type-Options', 'nosniff');
     res.setHeader(
       'Content-Disposition',
-      buildContentDisposition(isImage ? 'inline' : 'attachment', proof.fileName),
+      buildContentDisposition(
+        isInlineSafeMime(proof.mimeType) ? 'inline' : 'attachment',
+        proof.fileName,
+      ),
     );
     res.send(proof.buffer);
   }

@@ -56,10 +56,12 @@ export class AuditService {
 
   /** 슈퍼관리자용: 같은 회사 최근 감사 로그 */
   async list(companyCode: string, limit = 100): Promise<AuditLogRow[]> {
+    // 잘못된 limit(NaN 등) 이 Prisma take 로 전달돼 쿼리가 깨지지 않도록 보정한다.
+    const take = Number.isFinite(limit) ? Math.min(Math.max(limit, 1), 200) : 100;
     return this.prisma.auditLog.findMany({
       where: { companyCode },
       orderBy: { createdAt: 'desc' },
-      take: Math.min(Math.max(limit, 1), 200),
+      take,
       select: {
         id: true,
         actorId: true,

@@ -8,6 +8,7 @@ import { ProgressDashboard } from '../components/ProgressDashboard';
 import { QuestList } from '../components/QuestList';
 import { StatsQuestListSection } from '../components/StatsQuestListSection';
 import { useQuestStore } from '../store/questStore';
+import { useToastStore } from '../store/toastStore';
 import {
   QuestStatus,
   QUEST_STATUS_LABEL,
@@ -67,8 +68,11 @@ export default function AdminDashboard() {
       const status =
         statusFilter === '' ? undefined : (Number(statusFilter) as QuestStatus);
       await questApi.exportCsv({ status, search: search || undefined });
-    } catch {
-      /* axios interceptor toast 처리 외 침묵 */
+    } catch (err) {
+      useToastStore.getState().push(
+        err instanceof Error ? err.message : 'CSV 내보내기에 실패했습니다.',
+        'error',
+      );
     } finally {
       setExporting(false);
     }

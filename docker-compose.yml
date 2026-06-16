@@ -62,12 +62,15 @@ services:
       - LANG=C.UTF-8
       - LC_ALL=C.UTF-8
       - DATABASE_URL=postgresql://${POSTGRES_USER:-onquest}:${POSTGRES_PASSWORD:-onquest_pw}@postgres:5432/${POSTGRES_DB:-onquest}
-      - JWT_SECRET=${JWT_SECRET:-change_this_jwt_secret}
+      # 약한 기본값 폴백 제거 — 미설정이면 compose 가 즉시 에러로 중단된다.
+      - JWT_SECRET=${JWT_SECRET:?JWT_SECRET 을 .env 에 설정하세요 (openssl rand -base64 48)}
       - JWT_EXPIRES_IN=${JWT_EXPIRES_IN:-1h}
       - JWT_REFRESH_EXPIRES_IN=${JWT_REFRESH_EXPIRES_IN:-7d}
+      # refresh token 쿠키 Secure 플래그. HTTPS 종단 배포 시 true 로 설정.
+      - COOKIE_SECURE=${COOKIE_SECURE:-false}
       # Internal container hostname; 3초 이내 실시간 알림 목표
       - N8N_WEBHOOK_URL=http://n8n:5678/webhook/onquest
-      - N8N_WEBHOOK_SECRET=${N8N_WEBHOOK_SECRET:-super_secret_change_me}
+      - N8N_WEBHOOK_SECRET=${N8N_WEBHOOK_SECRET:?N8N_WEBHOOK_SECRET 을 .env 에 설정하세요}
       - API_PUBLIC_URL=${API_PUBLIC_URL:-http://localhost:3000/api}
       - PROOF_SHARE_SECRET=${PROOF_SHARE_SECRET:-}
       - PROOF_SHARE_TTL_SECONDS=${PROOF_SHARE_TTL_SECONDS:-604800}

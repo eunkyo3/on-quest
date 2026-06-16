@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { useAuthStore } from '../store/authStore';
 import { useToastStore } from '../../store/toastStore';
+import { ROLE_LABEL, homePathForRole } from '../../types/role';
 
 export default function SettingsPage() {
   const user = useAuthStore((s) => s.user);
@@ -48,7 +49,7 @@ export default function SettingsPage() {
     }
   };
 
-  const dashboardPath = user.role === 'admin' ? '/admin' : '/employee';
+  const dashboardPath = homePathForRole(user.role);
 
   return (
     <div className="grid" style={{ maxWidth: 520 }}>
@@ -70,7 +71,7 @@ export default function SettingsPage() {
         </label>
         <input
           id="settings-role"
-          value={user.role === 'admin' ? '관리자' : '사원'}
+          value={ROLE_LABEL[user.role] ?? user.role}
           disabled
         />
 
@@ -107,14 +108,14 @@ export default function SettingsPage() {
         />
 
         <label htmlFor="settings-new-pw" style={{ marginTop: '0.75rem' }}>
-          새 비밀번호 (6자 이상)
+          새 비밀번호 (8자 이상)
         </label>
         <input
           id="settings-new-pw"
           type="password"
           value={newPassword}
           onChange={(e) => setNewPassword(e.target.value)}
-          minLength={6}
+          minLength={8}
           autoComplete="new-password"
         />
 

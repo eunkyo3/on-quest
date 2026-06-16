@@ -1,4 +1,8 @@
-import { BadRequestException, ForbiddenException } from '@nestjs/common';
+import {
+  BadRequestException,
+  ConflictException,
+  ForbiddenException,
+} from '@nestjs/common';
 import { QuestService, csvEscape } from './quest.service';
 import { QuestStatus } from './enums/quest-status.enum';
 import { ROLES } from '../common/roles';
@@ -31,9 +35,12 @@ function makeQuest(overrides: Partial<Record<string, unknown>> = {}) {
 }
 
 function setup(quest: ReturnType<typeof makeQuest>) {
+  // 상태 전이는 updateMany 로 한 행을 선점한 뒤 findUnique 로 갱신본을 다시 읽는다.
+  // 목에서도 동일하게 동작하도록 현재 상태를 추적한다.
+  let current = quest;
   const prisma = {
     quest: {
-      findUnique: jest.fn().mockResolvedValue(quest),
+      findUnique: jest.fn().mockImplementation(() => Promise.resolve(current)),
       create: jest
         .fn()
         .mockImplementation(({ data }: { data: Record<string, unknown> }) =>
@@ -41,9 +48,16 @@ function setup(quest: ReturnType<typeof makeQuest>) {
         ),
       update: jest
         .fn()
-        .mockImplementation(({ data }: { data: Record<string, unknown> }) =>
-          Promise.resolve({ ...quest, ...data }),
-        ),
+        .mockImplementation(({ data }: { data: Record<string, unknown> }) => {
+          current = { ...current, ...data };
+          return Promise.resolve(current);
+        }),
+      updateMany: jest
+        .fn()
+        .mockImplementation(({ data }: { data: Record<string, unknown> }) => {
+          current = { ...current, ...data };
+          return Promise.resolve({ count: 1 });
+        }),
     },
     user: {
       findFirst: jest.fn().mockResolvedValue({ id: 'u1' }),
@@ -127,6 +141,16 @@ describe('QuestService — 검토(review)', () => {
       admin,
     );
     expect(res.status).toBe(QuestStatus.COMPLETED);
+  });
+
+  it('동시 변경으로 선점에 실패하면(Conflict) 중복 처리하지 않는다', async () => {
+    const { service, prisma, n8n } = setup(makeQuest({ status: QuestStatus.SUBMITTED }));
+    // 검증 통과 후 updateMany 가 0건 → 다른 요청이 먼저 상태를 바꾼 상황을 모사
+    prisma.quest.updateMany = jest.fn().mockResolvedValue({ count: 0 });
+    await expect(
+      service.reviewQuest('q1234567', { status: QuestStatus.COMPLETED }, admin),
+    ).rejects.toBeInstanceOf(ConflictException);
+    expect(n8n.triggerWebhook).not.toHaveBeenCalled();
   });
 });
 

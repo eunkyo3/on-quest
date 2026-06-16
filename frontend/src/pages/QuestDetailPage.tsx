@@ -79,12 +79,33 @@ export default function QuestDetailPage({ mode, listPath }: Props) {
 
   const handleSaveEdit = async () => {
     if (!quest) return;
+    const title = editTitle.trim();
+    const description = editDescription.trim();
+    const deadlineDate = new Date(editDeadline);
+    const toast = useToastStore.getState();
+    // 네트워크 전에 검증 — 빈 마감일이면 toISOString() 이 RangeError 로 조용히 throw 되던 문제 방지
+    if (title.length < 2) {
+      toast.push('제목은 2자 이상 입력해 주세요.', 'error');
+      return;
+    }
+    if (!description) {
+      toast.push('설명을 입력해 주세요.', 'error');
+      return;
+    }
+    if (!editDeadline || Number.isNaN(deadlineDate.getTime())) {
+      toast.push('마감 기한을 올바르게 입력해 주세요.', 'error');
+      return;
+    }
+    if (deadlineDate.getTime() <= Date.now()) {
+      toast.push('마감 기한은 현재 시각 이후여야 합니다.', 'error');
+      return;
+    }
     setSaving(true);
     try {
       const updated = await updateQuest(quest.id, {
-        title: editTitle.trim(),
-        description: editDescription.trim(),
-        deadline: new Date(editDeadline).toISOString(),
+        title,
+        description,
+        deadline: deadlineDate.toISOString(),
       });
       setQuest(updated);
       upsertQuest(updated);

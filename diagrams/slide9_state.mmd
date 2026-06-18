@@ -1,0 +1,22 @@
+flowchart LR
+    START(( )) -->|관리자 발행| PENDING(["대기"])
+    PENDING -->|신입 착수| PROG(["착수"])
+    PENDING -->|"신입 거부(사유)"| DECL(["거부됨"])
+    PROG -->|인증샷 제출| REVIEW(["검토대기"])
+    REVIEW -->|관리자 승인| DONE(["완료"])
+    REVIEW -->|"관리자 반려(+피드백)"| REJ(["반려"])
+    REJ -->|보완 후 재제출| REVIEW
+    DECL -->|관리자 재개봉| PENDING
+    DONE -->|종료| END(( ))
+
+    classDef active fill:#1E3A5F,stroke:#5EC8F2,stroke-width:2px,color:#fff
+    classDef done fill:#65A30D,stroke:#A3E635,stroke-width:2px,color:#fff
+    classDef reject fill:#9F1239,stroke:#FB7185,stroke-width:2px,color:#fff
+    classDef declined fill:#334155,stroke:#94A3B8,stroke-width:2px,color:#fff
+    classDef term fill:#0F172A,stroke:#64748B,stroke-width:2px,color:#fff
+
+    class PENDING,PROG,REVIEW active
+    class DONE done
+    class REJ reject
+    class DECL declined
+    class START,END term

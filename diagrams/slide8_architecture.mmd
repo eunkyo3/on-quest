@@ -1,0 +1,36 @@
+flowchart LR
+    U([사용자 브라우저])
+
+    subgraph FE["프론트엔드 컨테이너"]
+        direction TB
+        R["React SPA"]
+        N["Nginx<br/>정적 서빙 · /api 프록시"]
+        R --- N
+    end
+
+    subgraph BE["백엔드 컨테이너 · NestJS"]
+        direction TB
+        API["인증 · 퀘스트 · 감사로그<br/>자동화 연동 · 헬스체크"]
+    end
+
+    DB[("PostgreSQL<br/>Prisma ORM")]
+    AUTO["n8n<br/>자동화 워크플로우"]
+    SLACK(["Slack<br/>실시간 알림"])
+
+    U -->|HTTPS| N
+    N -->|/api 프록시| API
+    API -->|Prisma| DB
+    API -.->|HMAC-SHA256 서명 웹훅| AUTO
+    AUTO -.->|서명 검증 후| SLACK
+
+    classDef user fill:#1A2238,stroke:#5EC8F2,stroke-width:2px,color:#fff
+    classDef fe fill:#16203A,stroke:#3B82F6,stroke-width:2px,color:#fff
+    classDef be fill:#16203A,stroke:#3B82F6,stroke-width:2px,color:#fff
+    classDef db fill:#1E293B,stroke:#A3E635,stroke-width:2px,color:#fff
+    classDef ext fill:#1E293B,stroke:#A3E635,stroke-width:2px,color:#fff
+
+    class U user
+    class R,N fe
+    class API be
+    class DB db
+    class AUTO,SLACK ext
